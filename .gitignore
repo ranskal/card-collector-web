@@ -39,3 +39,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local env files (do not commit)
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# (optional) ignore any other env files
+.env
+.env.*
+!.env.example

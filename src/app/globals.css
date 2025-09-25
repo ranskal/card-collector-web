@@ -1,17 +1,31 @@
 /* src/app/globals.css */
-
 /* Tailwind v4 */
 @import "tailwindcss";
 
-/* Force light look on iOS Safari too */
-:root {
-  color-scheme: light;
-}
+/* Always light UI (prevents iOS Safari dark inversion) */
+:root { color-scheme: light; }
+html, body { @apply bg-slate-50 text-slate-900; }
 
-/* Subtle, consistent ring + radius system */
-@utility card {
-  @apply bg-white border border-slate-200/80 rounded-2xl shadow-sm;
-}
-@utility pill {
-  @apply inline-flex items-center rounded-full border border-slate-300/80 px-2.5 py-1 text-xs font-semibold text-slate-700;
-}
+/* Page container */
+@utility app-container { @apply max-w-3xl mx-auto px-4; }
+
+/* Cards / rows */
+@utility card { @apply bg-white border border-slate-200/80 rounded-2xl shadow-sm; }
+@utility card-row { @apply bg-white border border-slate-200 rounded-2xl shadow-sm; }
+
+/* Pills / chips */
+@utility pill { @apply inline-flex items-center rounded-full border border-slate-300/80 px-2.5 py-1 text-xs font-semibold text-slate-700; }
+@utility pill-neutral { @apply bg-slate-100 text-slate-700; }
+@utility pill-primary { @apply bg-indigo-50 text-indigo-700; }
+
+/* Buttons */
+@utility btn { @apply inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-semibold border border-slate-200 bg-white text-slate-900 shadow-sm hover:bg-slate-50 transition; }
+@utility btn-primary { @apply border-transparent bg-indigo-600 text-white hover:bg-indigo-700; }
+@utility btn-outline { @apply border-slate-300 text-slate-700 hover:bg-slate-50; }
+
+/* Links */
+@utility link { @apply text-indigo-600 hover:underline; }
+
+/* Small extras */
+@utility shadow-soft { @apply shadow-sm; }
+@utility border-soft { @apply border border-slate-200; }

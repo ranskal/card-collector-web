@@ -81,38 +81,45 @@ export default function HomePage() {
   }, [cards, sortBy])
 
 async function handleDelete(card: CardRow) {
-  const ok = confirm(`Delete "${card.player?.full_name || 'Card'}"?`)
+  // Build a human label: "Jackie Robinson • 1956 Topps • #30"
+  const label =
+    [
+      card.player?.full_name ?? 'Unknown Player',
+      card.year ? String(card.year) : '—',
+      card.brand ?? '—',
+      card.card_no ? `#${card.card_no}` : undefined,
+    ].filter(Boolean).join(' • ');
+
+  const ok = confirm(`Delete ${label}?\n\nThis will remove the card and its photo(s).`)
   if (!ok) return
 
-  // Try to delete the card first. If you added ON DELETE CASCADE, card_images go too.
+  // Delete the card row (card_images will follow if you set ON DELETE CASCADE)
   const { data: deleted, error } = await supabase
     .from('cards')
     .delete()
     .eq('id', card.id)
-    .select('id') // return deleted rows so we can verify
+    .select('id')
 
   if (error) {
     alert(`Delete failed: ${error.message}`)
     return
   }
   if (!deleted || deleted.length === 0) {
-    alert(
-      "This card wasn't removed because you don't have permission to delete it (it may belong to a different session/user)."
-    )
+    alert(`Could not delete “${label}”. You may not have permission (different session/user).`)
     return
   }
 
-  // Best-effort: remove storage files (ignoring errors)
-  if (card.card_images?.length) {
+  // Best-effort: remove storage files (ignore errors)
+  const paths = (card.card_images ?? [])
+    .map(i => i.storage_path)
+    .filter(Boolean) as string[]
+  if (paths.length) {
     try {
-      await supabase
-        .storage
-        .from('card-images')
-        .remove(card.card_images.map(i => i.storage_path))
+      await supabase.storage.from('card-images').remove(paths)
     } catch {}
   }
 
-  // Now update UI
+  // Update UI
   setCards(prev => prev.filter(c => c.id !== card.id))
 }
 

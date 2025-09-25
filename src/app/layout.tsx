@@ -1,55 +1,43 @@
 // src/app/layout.tsx
-import type { Metadata } from 'next'
 import './globals.css'
-import { Inter } from 'next/font/google'
 import Link from 'next/link'
 
-const inter = Inter({ subsets: ['latin'] })
-
-export const metadata: Metadata = {
-  title: {
-    default: 'Card Collector',
-    template: '%s · Card Collector',
-  },
-  description: 'Track your trading cards with Next.js + Supabase.',
-  manifest: '/manifest.json',
-  icons: {
-    icon: [
-      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
-    ],
-    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
-  },
-  themeColor: '#111827',
+export const metadata = {
+  title: 'My Card Collection',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="h-full">
-      <body className={`${inter.className} min-h-screen bg-gray-50 text-gray-900`}>
-        <header className="sticky top-0 z-30 border-b bg-white/80 backdrop-blur">
-          <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
-            <Link href="/" className="text-lg font-bold">
-              Card Collector
-            </Link>
-            <nav className="flex items-center gap-2">
-              <Link
-                href="/"
-                className="rounded-md px-3 py-1.5 text-sm font-medium hover:bg-gray-100"
-              >
-                My Cards
-              </Link>
-              <Link
-                href="/add"
-                className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-              >
-                Add Card
-              </Link>
-            </nav>
-          </div>
-        </header>
+    <html lang="en">
+      <body className="min-h-dvh bg-slate-50">
+        <div className="mx-auto max-w-screen-md px-4 pb-28">{/* leave room for FAB */}
+          {/* top bar */}
+          <header className="sticky top-0 z-10 -mx-4 mb-4 bg-slate-50/80 backdrop-blur">
+            <div className="mx-auto max-w-screen-md px-4 py-4">
+              <div className="flex items-center justify-between">
+                <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
+                  My Card Collection
+                </h1>
+                <Link
+                  href="/add"
+                  className="hidden rounded-full bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 md:inline-block"
+                >
+                  Add Card
+                </Link>
+              </div>
+            </div>
+          </header>
 
-        <main className="mx-auto max-w-4xl px-4 py-6">{children}</main>
+          <main>{children}</main>
+
+          {/* Floating Add (mobile style) */}
+          <Link
+            href="/add"
+            className="fixed bottom-6 right-6 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-600 to-fuchsia-500 px-5 py-4 text-base font-semibold text-white shadow-lg shadow-indigo-700/20 hover:shadow-xl"
+          >
+            + Add
+          </Link>
+        </div>
       </body>
     </html>
   )

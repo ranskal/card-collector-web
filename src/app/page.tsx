@@ -80,20 +80,41 @@ export default function HomePage() {
     return copy
   }, [cards, sortBy])
 
-  async function handleDelete(card: CardRow) {
-    const ok = confirm(`Delete "${card.player?.full_name || 'Card'}"?`)
-    if (!ok) return
+async function handleDelete(card: CardRow) {
+  const ok = confirm(`Delete "${card.player?.full_name || 'Card'}"?`)
+  if (!ok) return
 
-    // Best-effort: remove images first so row-level FK doesn’t block
-    if (card.card_images?.length) {
-      await supabase.storage
-        .from('card-images')
-        .remove(card.card_images.map((i) => i.storage_path))
-      await supabase.from('card_images').delete().eq('card_id', card.id)
-    }
-    const { error } = await supabase.from('cards').delete().eq('id', card.id)
-    if (!error) setCards((prev) => prev.filter((c) => c.id !== card.id))
+  // Try to delete the card first. If you added ON DELETE CASCADE, card_images go too.
+  const { data: deleted, error } = await supabase
+    .from('cards')
+    .delete()
+    .eq('id', card.id)
+    .select('id') // return deleted rows so we can verify
+
+  if (error) {
+    alert(`Delete failed: ${error.message}`)
+    return
   }
+  if (!deleted || deleted.length === 0) {
+    alert(
+      "This card wasn't removed because you don't have permission to delete it (it may belong to a different session/user)."
+    )
+    return
+  }
+
+  // Best-effort: remove storage files (ignoring errors)
+  if (card.card_images?.length) {
+    try {
+      await supabase
+        .storage
+        .from('card-images')
+        .remove(card.card_images.map(i => i.storage_path))
+    } catch {}
+  }
+
+  // Now update UI
+  setCards(prev => prev.filter(c => c.id !== card.id))
+}
 
   return (
     <div className="space-y-4">

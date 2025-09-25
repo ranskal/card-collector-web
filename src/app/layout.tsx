@@ -2,6 +2,9 @@
 import './globals.css'
 import Link from 'next/link'
 import type { Metadata, Viewport } from 'next'
+import { Inter } from 'next/font/google'
+
+const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'Card Collector',
@@ -21,17 +24,16 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="bg-white" style={{ colorScheme: 'light' }}>
-      <body className="min-h-[100svh] bg-white text-slate-900 antialiased">
+      <body className={`${inter.className} min-h-[100svh] bg-white text-slate-900 antialiased`}>
         {/* Centered page container with padding; leave space for FAB */}
         <div className="mx-auto max-w-screen-md px-4 pb-28">
-          {/* Sticky light header (like before) */}
+          {/* Sticky light header */}
           <header className="sticky top-0 z-10 -mx-4 mb-4 bg-white/80 backdrop-blur">
             <div className="mx-auto max-w-screen-md px-4 py-4">
               <div className="flex items-center justify-between">
                 <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
                   My Card Collection
                 </h1>
-                {/* Desktop add button (mobile uses FAB below) */}
                 <Link
                   href="/add"
                   className="hidden md:inline-block rounded-full bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"

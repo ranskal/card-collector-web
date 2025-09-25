@@ -1,68 +1,126 @@
 'use client'
-import { useState } from 'react'
+
+import { useEffect, useMemo, useState } from 'react'
 import Cropper, { Area } from 'react-easy-crop'
-import { cropToBlob } from '@/lib/crop'
 
 type Props = {
-  open: boolean
-  image: string | null   // data URL to crop
-  aspect?: number        // e.g. 2.5/3.5 for cards
-  onClose: () => void
-  onConfirm: (blob: Blob) => void
+  /** Image file to crop */
+  file: File
+  /** Aspect ratio (e.g. 2/3 for trading cards) */
+  aspect?: number
+  /** Called when user cancels the crop */
+  onCancel: () => void
+  /** Called with the cropped Blob when user confirms */
+  onDone: (blob: Blob) => void | Promise<void>
 }
 
-export default function CropperModal({ open, image, aspect = 2.5/3.5, onClose, onConfirm }: Props) {
-  const [zoom, setZoom] = useState(1)
+export default function CropperModal({
+  file,
+  aspect = 2 / 3,
+  onCancel,
+  onDone,
+}: Props) {
+  // preview URL for the incoming file
+  const url = useMemo(() => URL.createObjectURL(file), [file])
+  useEffect(() => {
+    return () => URL.revokeObjectURL(url)
+  }, [url])
+
   const [crop, setCrop] = useState({ x: 0, y: 0 })
+  const [zoom, setZoom] = useState(1)
   const [area, setArea] = useState<Area | null>(null)
 
-  if (!open || !image) return null
+  function onCropComplete(_: Area, croppedAreaPixels: Area) {
+    setArea(croppedAreaPixels)
+  }
+
+  async function handleUsePhoto() {
+    if (!area) return
+    const blob = await cropToBlob(url, area)
+    await onDone(blob)
+  }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60">
-      <div className="w-[min(92vw,520px)] rounded-xl bg-white p-4 shadow-xl">
-        <div className="relative h-[60vh] rounded-lg overflow-hidden bg-black/5">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60">
+      <div className="w-full max-w-[520px] rounded-2xl bg-white shadow-xl overflow-hidden">
+        <div className="relative h-[60vh] bg-black">
           <Cropper
-            image={image}
+            image={url}
             crop={crop}
             zoom={zoom}
             aspect={aspect}
             onCropChange={setCrop}
             onZoomChange={setZoom}
-            onCropComplete={(_, a) => setArea(a)}
+            onCropComplete={onCropComplete}
             cropShape="rect"
             showGrid={false}
             objectFit="contain"
+            restrictPosition={false}
           />
         </div>
 
-        <div className="mt-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-4 p-4">
           <input
             type="range"
-            min={1} max={4} step={0.05}
+            min={1}
+            max={4}
+            step={0.01}
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
-            className="w-full"
+            className="flex-1"
+            aria-label="Zoom"
           />
-        </div>
-
-        <div className="mt-4 flex justify-end gap-2">
           <button
-            onClick={onClose}
-            className="rounded-md border px-4 py-2"
-          >Cancel</button>
-
+            onClick={onCancel}
+            className="rounded border px-3 py-1 text-gray-700"
+          >
+            Cancel
+          </button>
           <button
-            onClick={async () => {
-              if (!area) return
-              const blob = await cropToBlob(image, area)
-              onConfirm(blob)
-              onClose()
-            }}
-            className="rounded-md bg-blue-600 px-4 py-2 text-white"
-          >Use Crop</button>
+            onClick={handleUsePhoto}
+            className="rounded bg-indigo-600 text-white px-4 py-1.5"
+          >
+            Use Photo
+          </button>
         </div>
       </div>
     </div>
   )
+}
+
+/** Crop the given image URL to the pixel area and return a JPEG Blob */
+async function cropToBlob(imageUrl: string, area: Area): Promise<Blob> {
+  const img = await loadImage(imageUrl)
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')!
+
+  const { width, height, x, y } = area
+  canvas.width = Math.round(width)
+  canvas.height = Math.round(height)
+
+  ctx.drawImage(
+    img,
+    Math.round(x),
+    Math.round(y),
+    Math.round(width),
+    Math.round(height),
+    0,
+    0,
+    Math.round(width),
+    Math.round(height)
+  )
+
+  const blob: Blob = await new Promise((resolve) =>
+    canvas.toBlob((b) => resolve(b as Blob), 'image/jpeg', 0.92)
+  )
+  return blob
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((res, rej) => {
+    const img = new Image()
+    img.onload = () => res(img)
+    img.onerror = rej
+    img.src = src
+  })
 }

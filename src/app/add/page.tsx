@@ -1,16 +1,20 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { ensureUser } from '@/lib/auth'
 import { useRouter } from 'next/navigation'
+import CropperModal from '@/components/CropperModal'
 
 type Player = { id: string; full_name: string }
 
 const DEFAULT_SPORTS = ['Baseball', 'Basketball', 'Football', 'Hockey', 'Miscellaneous'] as const
 const DEFAULT_BRANDS = ['Topps', 'Fleer', 'Donruss', 'Philadelphia'] as const
 const DEFAULT_COMPANIES = ['PSA', 'SGC', 'BVG', 'Beckett', 'SWG', 'CGC'] as const
+
+// Local preview item (cropped file kept in-memory until save)
+type LocalImg = { file: File; url: string; isPrimary: boolean }
 
 export default function AddPage() {
   const router = useRouter()
@@ -23,10 +27,8 @@ export default function AddPage() {
   // sport / brand
   const [sports, setSports] = useState<string[]>([...DEFAULT_SPORTS])
   const [brands, setBrands] = useState<string[]>([...DEFAULT_BRANDS])
-
   const [sportChoice, setSportChoice] = useState<string>(sports[0])
   const [brandChoice, setBrandChoice] = useState<string>(brands[0])
-
   const [customSport, setCustomSport] = useState('')
   const [customBrand, setCustomBrand] = useState('')
 
@@ -42,9 +44,14 @@ export default function AddPage() {
   const [gradingNo, setGradingNo] = useState('')
   const [grade, setGrade] = useState('')
 
-  // images (in-browser files + previews)
-  type LocalImg = { file: File; url: string; isPrimary: boolean }
+  // images (cropped files + previews)
   const [images, setImages] = useState<LocalImg[]>([])
+
+  // ---- cropping queue state ----
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [cropQueue, setCropQueue] = useState<File[]>([])
+  const [activeFile, setActiveFile] = useState<File | null>(null)
+  const [tmpCardId] = useState(() => String(Date.now()))
 
   // load players
   useEffect(() => {
@@ -93,31 +100,68 @@ export default function AddPage() {
     setCustomCompany('')
   }
 
-  // image file input
-  async function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? [])
-    if (!files.length) return
-    setImages(prev => [
-      ...prev,
-      ...files.map((f, i) => ({
-        file: f,
-        url: URL.createObjectURL(f),
-        isPrimary: prev.length === 0 && i === 0 ? true : false,
-      })),
-    ])
-    e.target.value = '' // allow re-selecting same file later
+  // ---- image picking + crop flow ----
+  function openPicker() {
+    fileInputRef.current?.click()
   }
 
+  function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = '' // allow re-picking same files later
+    if (!files.length) return
+    setCropQueue(files)
+    setActiveFile(files[0])
+  }
+
+  // When a crop is confirmed, turn the Blob into a File and push to previews
+  async function handleCropped(blob: Blob) {
+    // name the new file; keep jpg mime
+    const croppedFile = new File([blob], `crop-${Date.now()}.jpg`, { type: blob.type || 'image/jpeg' })
+    const url = URL.createObjectURL(croppedFile)
+
+    setImages(prev => {
+      const isFirst = prev.length === 0
+      return [...prev, { file: croppedFile, url, isPrimary: isFirst }]
+    })
+
+    // advance the queue
+    setCropQueue(q => {
+      const [, ...rest] = q
+      setActiveFile(rest[0] ?? null)
+      return rest
+    })
+  }
+
+  // Skip current file and move to next
+  function cancelCrop() {
+    setCropQueue(q => {
+      const [, ...rest] = q
+      setActiveFile(rest[0] ?? null)
+      return rest
+    })
+  }
+
+  // preview helpers
   function makePrimary(i: number) {
     setImages(prev => prev.map((img, idx) => ({ ...img, isPrimary: idx === i })))
   }
   function removeImage(i: number) {
-    setImages(prev => prev.filter((_, idx) => idx !== i))
+    setImages(prev => {
+      const next = prev.filter((_, idx) => idx !== i)
+      // ensure at least one remains primary
+      if (next.length && !next.some(n => n.isPrimary)) next[0].isPrimary = true
+      return next
+    })
   }
   function clearImages() {
-    setImages([])
+    setImages(prev => {
+      // clean up ObjectURLs
+      prev.forEach(p => URL.revokeObjectURL(p.url))
+      return []
+    })
   }
 
+  // save to DB
   async function save() {
     try {
       const u = await ensureUser()
@@ -130,7 +174,6 @@ export default function AddPage() {
           alert('Please enter a player name.')
           return
         }
-        // upsert-ish
         const { data: existing } = await supabase
           .from('players')
           .select('id')
@@ -163,7 +206,9 @@ export default function AddPage() {
           alert('Select a grading company or choose Other…')
           return
         }
-        gradingCompany = companyChoice === '__OTHER_COMPANY__' ? (customCompany.trim() || null) : companyChoice
+        gradingCompany = companyChoice === '__OTHER_COMPANY__'
+          ? (customCompany.trim() || null)
+          : companyChoice
         if (!gradingCompany) {
           alert('Enter a grading company.')
           return
@@ -188,18 +233,16 @@ export default function AddPage() {
         .single()
       if (cErr || !card) throw cErr ?? new Error('Failed to insert card')
 
-      // upload files to storage + insert card_images rows
+      // upload cropped files to storage + insert card_images rows
       if (images.length) {
-        const tmp = String(Date.now())
         const uploadedPaths: { path: string; isPrimary: boolean }[] = []
-
         for (let i = 0; i < images.length; i++) {
           const img = images[i]
           const ext = img.file.name.split('.').pop()?.toLowerCase() || 'jpg'
-          const path = `${u.id}/${tmp}/${Date.now()}-${i}.${ext}`
+          const path = `${u.id}/${tmpCardId}/${Date.now()}-${i}.${ext}`
           const { error } = await supabase.storage
             .from('card-images')
-            .upload(path, img.file, { upsert: false })
+            .upload(path, img.file, { upsert: false, contentType: img.file.type || 'image/jpeg' })
           if (error) throw error
           uploadedPaths.push({ path, isPrimary: img.isPrimary })
         }
@@ -383,7 +426,20 @@ export default function AddPage() {
       {/* Images */}
       <div className="space-y-2">
         <label className="text-sm font-medium">Photos</label>
-        <input type="file" accept="image/*" multiple onChange={onPickFiles} />
+
+        {/* Hidden picker + button */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={onPickFiles}
+        />
+        <button className="rounded border px-3 py-1" onClick={openPicker}>
+          {images.length ? 'Add More Photos' : 'Add Photo(s)'}
+        </button>
+
         {images.length > 0 && (
           <div className="flex overflow-x-auto gap-3 py-2">
             {images.map((im, i) => (
@@ -432,6 +488,16 @@ export default function AddPage() {
           Save
         </button>
       </div>
+
+      {/* Cropper modal steps through selected files */}
+      {activeFile && (
+        <CropperModal
+          file={activeFile}
+          aspect={2 / 3}          // trading card-ish
+          onCancel={cancelCrop}
+          onDone={handleCropped}
+        />
+      )}
     </div>
   )
 }

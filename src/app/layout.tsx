@@ -1,60 +1,47 @@
 // src/app/layout.tsx
-import './globals.css'
+import type { Metadata } from 'next'
 import Link from 'next/link'
-import type { Metadata, Viewport } from 'next'
-import { Inter } from 'next/font/google'
-
-const inter = Inter({ subsets: ['latin'] })
+import './globals.css'
 
 export const metadata: Metadata = {
   title: 'Card Collector',
-  description: 'My Card Collection',
-  manifest: '/manifest.webmanifest',
+  description: 'Track your card collection',
   themeColor: '#ffffff',
-  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Card Collector' },
-}
-
-export const viewport: Viewport = {
-  width: 'device-width',
-  initialScale: 1,
-  viewportFit: 'cover',
-  themeColor: '#ffffff',
+  viewport:
+    'width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="bg-white" style={{ colorScheme: 'light' }}>
-      <body className={`${inter.className} min-h-[100svh] bg-white text-slate-900 antialiased`}>
-        {/* Centered page container with padding; leave space for FAB */}
-        <div className="mx-auto max-w-screen-md px-4 pb-28">
-          {/* Sticky light header */}
-          <header className="sticky top-0 z-10 -mx-4 mb-4 bg-white/80 backdrop-blur">
-            <div className="mx-auto max-w-screen-md px-4 py-4">
-              <div className="flex items-center justify-between">
-                <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
-                  My Card Collection
-                </h1>
-                <Link
-                  href="/add"
-                  className="hidden md:inline-block rounded-full bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
-                >
-                  Add Card
-                </Link>
-              </div>
+    <html lang="en" className="light" style={{ colorScheme: 'light' }}>
+      <body className="min-h-dvh bg-slate-50 text-slate-900">
+        <div className="mx-auto max-w-screen-sm px-4 pb-24">
+          {/* Header */}
+          <header className="sticky top-0 z-10 -mx-4 bg-slate-50/90 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80">
+            <div className="flex items-center justify-between">
+              <h1 className="text-2xl font-extrabold tracking-tight">
+                My Card Collection
+              </h1>
+              <Link
+                href="/add"
+                className="rounded-full bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+              >
+                + Add
+              </Link>
             </div>
           </header>
 
-          {/* Page content */}
-          <main className="space-y-4">{children}</main>
-
-          {/* Floating Add for mobile */}
-          <Link
-            href="/add"
-            className="fixed bottom-6 right-6 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-indigo-600 to-fuchsia-500 px-5 py-4 text-base font-semibold text-white shadow-lg shadow-indigo-700/20 hover:shadow-xl"
-          >
-            + Add
-          </Link>
+          {/* Page */}
+          <main className="pt-3">{children}</main>
         </div>
+
+        {/* Floating Add (mobile convenience) */}
+        <Link
+          href="/add"
+          className="fixed bottom-6 right-6 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-3 text-base font-semibold text-white shadow-lg shadow-indigo-600/30 hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 sm:hidden"
+        >
+          + Add
+        </Link>
       </body>
     </html>
   )

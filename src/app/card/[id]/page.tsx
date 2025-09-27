@@ -5,15 +5,18 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { publicUrl } from '@/lib/storage'
+import ImageCarousel from '@/components/ImageCarousel'
 
 type ParamsP = { id: string }
+
+type CardImage = { storage_path: string; is_primary?: boolean | null }
 
 export default function CardDetails({
   params,
 }: {
   params: Promise<ParamsP> // Next 15: params is a Promise
 }) {
-  const { id } = use(params)
+  const { id } = use(params) // unwrap once
   const [card, setCard] = useState<any | null>(null)
 
   useEffect(() => {
@@ -42,10 +45,14 @@ export default function CardDetails({
 
   if (!card) return <div className="py-16 text-center text-slate-500">Loading…</div>
 
-  const imgs: { storage_path: string; is_primary?: boolean | null }[] =
-    Array.isArray(card.card_images) ? card.card_images : []
-  const chosen = imgs.find((i) => i.is_primary) ?? imgs[0]
-  const hero = chosen ? publicUrl(chosen.storage_path) : undefined
+  // ----- images (ordered, with primary first) -----
+  const imgs: CardImage[] = Array.isArray(card.card_images) ? card.card_images : []
+  const ordered = [...imgs].sort(
+    (a, b) => (b?.is_primary ? 1 : 0) - (a?.is_primary ? 1 : 0)
+  )
+  const urls = ordered.map((i) => publicUrl(i.storage_path))
+  const initial =
+    Math.max(0, ordered.findIndex((i) => !!i.is_primary)) || 0
 
   const title = `${card.year ?? ''} ${card.brand ?? ''} #${card.card_no ?? ''}`.trim()
   const player = card.player?.full_name || 'Unknown Player'
@@ -64,28 +71,14 @@ export default function CardDetails({
         </Link>
       </div>
 
-      {/* Hero image @ 75% width, click to open full size */}
-      {hero ? (
-        <div className="mx-auto w-3/4">
-          <a href={hero} target="_blank" rel="noopener noreferrer" title="Open full size">
-            <div className="relative w-full overflow-hidden rounded-xl border bg-white">
-              <Image
-                src={hero}
-                alt={title || 'card'}
-                width={1600}
-                height={900}
-                className="w-full h-auto object-contain cursor-zoom-in"
-                priority
-              />
-            </div>
-          </a>
-          <div className="mt-2 text-right">
-            <a href={hero} target="_blank" rel="noopener noreferrer" className="link text-xs">
-              Open full size
-            </a>
-          </div>
+      {/* Hero / Carousel */}
+      {urls.length > 0 ? (
+        <ImageCarousel urls={urls} initial={initial} alt={title || 'card'} />
+      ) : (
+        <div className="relative w-full overflow-hidden rounded-xl border bg-white">
+          <div className="aspect-[3/2] w-full bg-slate-100" />
         </div>
-      ) : null}
+      )}
 
       {/* Card panel */}
       <div className="mt-6 rounded-2xl border bg-white p-5 shadow-sm">

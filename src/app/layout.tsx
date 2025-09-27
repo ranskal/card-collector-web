@@ -34,14 +34,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {/* Page */}
           <main className="pt-3">{children}</main>
         </div>
-
-        {/* Floating Add (mobile convenience) */}
-        <Link
-          href="/add"
-          className="fixed bottom-6 right-6 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-3 text-base font-semibold text-white shadow-lg shadow-indigo-600/30 hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 sm:hidden"
-        >
-          + Add
-        </Link>
       </body>
     </html>
   )

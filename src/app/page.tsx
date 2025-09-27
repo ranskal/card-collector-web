@@ -23,7 +23,7 @@ type CardRow = {
 
 type SortMode = 'combined' | 'player' | 'year' | 'brand' | 'number'
 type FilterKey = 'sport' | 'player' | 'year' | 'type' | null
-type TypeFilter = 'graded' | 'raw'
+type TypeFilter = '' | 'graded' | 'raw'
 
 function publicUrl(path: string) {
   return supabase.storage.from('card-images').getPublicUrl(path).data.publicUrl
@@ -207,11 +207,7 @@ export default function HomePage() {
     if (openFilter === 'sport')  setSportFilter(val)
     if (openFilter === 'player') setPlayerFilter(val)
     if (openFilter === 'year')   setYearFilter(val)
-    if (openFilter === 'type') {
-      if (val === '' || val === 'All') setTypeFilter('')
-      else if (val === 'Graded' || val === 'graded') setTypeFilter('graded')
-      else if (val === 'Raw' || val === 'raw') setTypeFilter('raw')
-    }
+    if (openFilter === 'type')   return ['Graded', 'Raw']
     closeDialog()
   }
 

@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { publicUrl } from '@/lib/storage'
 
@@ -59,16 +58,16 @@ export default function CardDetails() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lightbox, current, card])
+  }, [lightbox])
 
   if (!id)   return <div className="py-16 text-center text-slate-500">Missing id.</div>
   if (!card) return <div className="py-16 text-center text-slate-500">Loading…</div>
 
   const imgs: CardImage[] = Array.isArray(card.card_images) ? card.card_images : []
-  const urls = useMemo(() => imgs.map((i) => publicUrl(i.storage_path)), [imgs])
+  const urls = useMemo(() => imgs.map((i) => publicUrl(i.storage_path)).filter(Boolean), [imgs])
   const hasMany = urls.length > 1
   const safeCurrent = Math.min(Math.max(current, 0), Math.max(urls.length - 1, 0))
-  const hero = urls[safeCurrent]
+  const hero = urls[safeCurrent] // string | undefined
 
   const title  = `${card.year ?? ''} ${card.brand ?? ''} #${card.card_no ?? ''}`.trim()
   const player = card.player?.full_name || 'Unknown Player'
@@ -104,13 +103,12 @@ export default function CardDetails() {
               className="block w-full"
               title="Click to view larger"
             >
-              <Image
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={hero}
                 alt={title || 'card'}
-                width={1200}
-                height={1600}
                 className="w-full h-auto object-contain cursor-zoom-in"
-                priority
+                loading="eager"
               />
             </button>
 
@@ -181,8 +179,8 @@ export default function CardDetails() {
         </div>
       </div>
 
-      {/* Lightbox modal */}
-      {lightbox && (
+      {/* Lightbox modal — only render if hero exists */}
+      {lightbox && hero && (
         <div
           className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center"
           onClick={() => setLightbox(false)}
@@ -220,16 +218,8 @@ export default function CardDetails() {
               </>
             )}
 
-            <div className="absolute inset-0 bg-black">
-              <Image
-                src={hero}
-                alt={title || 'card'}
-                fill
-                sizes="100vw"
-                className="object-contain"
-                priority
-              />
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={hero} alt={title || 'card'} className="absolute inset-0 h-full w-full object-contain bg-black" />
           </div>
         </div>
       )}

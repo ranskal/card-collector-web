@@ -23,7 +23,7 @@ type CardRow = {
 
 type SortMode = 'combined' | 'player' | 'year' | 'brand' | 'number'
 type FilterKey = 'sport' | 'player' | 'year' | 'type' | null
-type TypeFilter = '' | 'graded' | 'raw'
+type TypeFilter = 'graded' | 'raw'
 
 function publicUrl(path: string) {
   return supabase.storage.from('card-images').getPublicUrl(path).data.publicUrl

@@ -22,6 +22,7 @@ type CardRow = {
 }
 
 type SortMode = 'combined' | 'player' | 'year' | 'brand' | 'number'
+type FilterKey = 'sport' | 'player' | 'year' | null
 
 function publicUrl(path: string) {
   return supabase.storage.from('card-images').getPublicUrl(path).data.publicUrl
@@ -42,7 +43,6 @@ function Pill({ active, children, onClick, title }: { active?: boolean; children
   )
 }
 
-// --- comparators ---
 const s = (v: unknown) => (v ?? '').toString()
 const cmpStr = (a?: string | null, b?: string | null) =>
   s(a).localeCompare(s(b), undefined, { sensitivity: 'base', numeric: true })
@@ -67,8 +67,12 @@ export default function HomePage() {
   // sort + filters
   const [sortBy, setSortBy] = useState<SortMode>('combined')
   const [sportFilter, setSportFilter] = useState<string>('')  // '' = All
-  const [playerFilter, setPlayerFilter] = useState<string>('')
-  const [yearFilter, setYearFilter] = useState<string>('')
+  const [playerFilter, setPlayerFilter] = useState<string>('')// '' = All
+  const [yearFilter, setYearFilter] = useState<string>('')    // '' = All
+
+  // pop-up state
+  const [openFilter, setOpenFilter] = useState<FilterKey>(null)
+  const [tempValue, setTempValue] = useState<string>('')
 
   useEffect(() => {
     let active = true
@@ -91,7 +95,7 @@ export default function HomePage() {
     return () => { active = false }
   }, [])
 
-  // Build filter option lists from data
+  // Filter option lists
   const sportOptions = useMemo(() => {
     const set = new Set<string>()
     cards.forEach(c => { if (c.sport) set.add(c.sport) })
@@ -113,14 +117,14 @@ export default function HomePage() {
   // Apply filters
   const filtered = useMemo(() => {
     return cards.filter(c => {
-      const sportOk = !sportFilter || c.sport === sportFilter
+      const sportOk  = !sportFilter  || c.sport === sportFilter
       const playerOk = !playerFilter || (c.player?.full_name === playerFilter)
-      const yearOk = !yearFilter || (c.year === Number(yearFilter))
+      const yearOk   = !yearFilter   || (c.year === Number(yearFilter))
       return sportOk && playerOk && yearOk
     })
   }, [cards, sportFilter, playerFilter, yearFilter])
 
-  // Apply sort
+  // Apply sort (default combined: Player → Year → Brand → Number, all ASC)
   const sorted = useMemo(() => {
     const list = [...filtered]
     list.sort((a, b) => {
@@ -133,14 +137,14 @@ export default function HomePage() {
         )
       }
       if (sortBy === 'player') return cmpStr(a.player?.full_name, b.player?.full_name)
-      if (sortBy === 'year') return cmpNumAsc(a.year, b.year)
-      if (sortBy === 'brand') return cmpStr(a.brand, b.brand)
+      if (sortBy === 'year')   return cmpNumAsc(a.year, b.year)
+      if (sortBy === 'brand')  return cmpStr(a.brand, b.brand)
       return cmpCardNo(a.card_no, b.card_no) // 'number'
     })
     return list
   }, [filtered, sortBy])
 
-  // Delete (keeps your permission check)
+  // Delete (permission-checked)
   async function handleDelete(card: CardRow) {
     const label = [
       card.player?.full_name ?? 'Unknown Player',
@@ -174,6 +178,33 @@ export default function HomePage() {
     setCards(prev => prev.filter(c => c.id !== card.id))
   }
 
+  // ----- pill labels -----
+  const sportLabel  = sportFilter  ? `Sport: ${sportFilter}`   : 'Sport: All'
+  const playerLabel = playerFilter ? `Player: ${playerFilter}` : 'Player: All'
+  const yearLabel   = yearFilter   ? `Year: ${yearFilter}`     : 'Year: All'
+
+  // ----- open pop-up for a given filter -----
+  function openFilterDialog(key: Exclude<FilterKey, null>) {
+    setOpenFilter(key)
+    if (key === 'sport')  setTempValue(sportFilter || '')
+    if (key === 'player') setTempValue(playerFilter || '')
+    if (key === 'year')   setTempValue(yearFilter || '')
+  }
+  function closeDialog() { setOpenFilter(null) }
+
+  function applyDialog() {
+    if (openFilter === 'sport')  setSportFilter(tempValue)
+    if (openFilter === 'player') setPlayerFilter(tempValue)
+    if (openFilter === 'year')   setYearFilter(tempValue)
+    closeDialog()
+  }
+  function clearDialog() {
+    if (openFilter === 'sport')  setSportFilter('')
+    if (openFilter === 'player') setPlayerFilter('')
+    if (openFilter === 'year')   setYearFilter('')
+    closeDialog()
+  }
+
   return (
     <div className="space-y-4">
       {/* Sort row */}
@@ -181,48 +212,17 @@ export default function HomePage() {
         <span>Sort:</span>
         <Pill active={sortBy==='combined'} onClick={()=>setSortBy('combined')} title="Player → Year → Brand → #">Default</Pill>
         <Pill active={sortBy==='player'} onClick={()=>setSortBy('player')}>Player</Pill>
-        <Pill active={sortBy==='year'} onClick={()=>setSortBy('year')}>Year</Pill>
-        <Pill active={sortBy==='brand'} onClick={()=>setSortBy('brand')}>Brand</Pill>
+        <Pill active={sortBy==='year'}   onClick={()=>setSortBy('year')}>Year</Pill>
+        <Pill active={sortBy==='brand'}  onClick={()=>setSortBy('brand')}>Brand</Pill>
         <Pill active={sortBy==='number'} onClick={()=>setSortBy('number')}>Number</Pill>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-3">
-        <div className="flex min-w-[160px] flex-col">
-          <label className="text-xs font-semibold text-slate-600">Sport</label>
-          <select
-            className="border rounded px-2 py-1 text-sm"
-            value={sportFilter}
-            onChange={(e)=>setSportFilter(e.target.value)}
-          >
-            <option value="">All</option>
-            {sportOptions.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-
-        <div className="flex min-w-[200px] flex-col">
-          <label className="text-xs font-semibold text-slate-600">Player</label>
-          <select
-            className="border rounded px-2 py-1 text-sm"
-            value={playerFilter}
-            onChange={(e)=>setPlayerFilter(e.target.value)}
-          >
-            <option value="">All</option>
-            {playerOptions.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-        </div>
-
-        <div className="flex min-w-[140px] flex-col">
-          <label className="text-xs font-semibold text-slate-600">Year</label>
-          <select
-            className="border rounded px-2 py-1 text-sm"
-            value={yearFilter}
-            onChange={(e)=>setYearFilter(e.target.value)}
-          >
-            <option value="">All</option>
-            {yearOptions.map(y => <option key={y} value={String(y)}>{y}</option>)}
-          </select>
-        </div>
+      {/* Filter pills */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-slate-600">Filter:</span>
+        <Pill active={!!sportFilter}  onClick={()=>openFilterDialog('sport')}>{sportLabel}</Pill>
+        <Pill active={!!playerFilter} onClick={()=>openFilterDialog('player')}>{playerLabel}</Pill>
+        <Pill active={!!yearFilter}   onClick={()=>openFilterDialog('year')}>{yearLabel}</Pill>
 
         <button
           onClick={() => { setSportFilter(''); setPlayerFilter(''); setYearFilter('') }}
@@ -308,6 +308,39 @@ export default function HomePage() {
           </div>
         )}
       </div>
+
+      {/* --- Filter pop-up --- */}
+      {openFilter && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={closeDialog}>
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 text-sm font-semibold text-slate-800">
+              {openFilter === 'sport' ? 'Select Sport'
+               : openFilter === 'player' ? 'Select Player'
+               : 'Select Year'}
+            </div>
+
+            <select
+              className="w-full rounded border px-2 py-2"
+              value={tempValue}
+              onChange={(e)=>setTempValue(e.target.value)}
+            >
+              <option value="">{openFilter === 'year' ? 'All years' : 'All'}</option>
+              {openFilter === 'sport'  && sportOptions.map(s => <option key={s} value={s}>{s}</option>)}
+              {openFilter === 'player' && playerOptions.map(p => <option key={p} value={p}>{p}</option>)}
+              {openFilter === 'year'   && yearOptions.map(y => <option key={y} value={String(y)}>{y}</option>)}
+            </select>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button className="btn" onClick={closeDialog}>Cancel</button>
+              <button className="btn btn-outline" onClick={clearDialog}>Clear</button>
+              <button className="btn btn-primary" onClick={applyDialog}>Apply</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

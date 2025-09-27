@@ -6,13 +6,14 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { publicUrl } from '@/lib/storage'
 
-type CardImage = { storage_path: string; is_primary?: boolean | null }
+type CardImage = { storage_path?: string | null; is_primary?: boolean | null }
 
 export default function CardDetails() {
   const params = useParams<{ id: string }>()
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id
 
   const [card, setCard] = useState<any | null>(null)
+  const [err, setErr] = useState<string | null>(null)
   const [current, setCurrent] = useState(0)
   const [lightbox, setLightbox] = useState(false)
 
@@ -20,34 +21,35 @@ export default function CardDetails() {
     if (!id) return
     let cancel = false
     ;(async () => {
-      const { data, error } = await supabase
-        .from('cards')
-        .select(`
-          id, year, brand, card_no, sport,
-          is_graded, grade, grading_company, grading_no,
-          player:players(full_name),
-          card_images(storage_path, is_primary)
-        `)
-        .eq('id', id)
-        .maybeSingle()
+      try {
+        const { data, error } = await supabase
+          .from('cards')
+          .select(`
+            id, year, brand, card_no, sport,
+            is_graded, grade, grading_company, grading_no,
+            player:players(full_name),
+            card_images(storage_path, is_primary)
+          `)
+          .eq('id', id)
+          .maybeSingle()
 
-      if (cancel) return
-      if (error) {
-        console.error('[card details] fetch error:', error.message)
-        setCard(null)
-        return
+        if (cancel) return
+        if (error) throw error
+        const c = (data as any) ?? null
+        setCard(c || null)
+
+        const imgs: CardImage[] = Array.isArray(c?.card_images) ? c.card_images : []
+        const idx = Math.max(0, imgs.findIndex(i => !!i?.is_primary))
+        setCurrent(idx === -1 ? 0 : idx)
+      } catch (e: any) {
+        console.error('[details] fetch failed:', e?.message || e)
+        if (!cancel) setErr(e?.message || 'Failed to load card.')
       }
-      const c = (data as any) ?? null
-      setCard(c)
-
-      const imgs: CardImage[] = Array.isArray(c?.card_images) ? c.card_images : []
-      const idx = imgs.findIndex((i) => !!i?.is_primary)
-      setCurrent(idx >= 0 ? idx : 0)
     })()
     return () => { cancel = true }
   }, [id])
 
-  // Keyboard nav only in lightbox
+  // Keyboard in lightbox only
   useEffect(() => {
     if (!lightbox) return
     function onKey(e: KeyboardEvent) {
@@ -60,14 +62,26 @@ export default function CardDetails() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lightbox])
 
-  if (!id)   return <div className="py-16 text-center text-slate-500">Missing id.</div>
+  if (!id) return <div className="py-16 text-center text-slate-500">Missing id.</div>
+  if (err)   return <div className="py-16 text-center text-red-600">Error: {err}</div>
   if (!card) return <div className="py-16 text-center text-slate-500">Loading…</div>
 
   const imgs: CardImage[] = Array.isArray(card.card_images) ? card.card_images : []
-  const urls = useMemo(() => imgs.map((i) => publicUrl(i.storage_path)).filter(Boolean), [imgs])
+  const urls = useMemo(() => {
+    try {
+      return imgs
+        .map(i => i?.storage_path || '')
+        .filter(Boolean)
+        .map(p => publicUrl(p))
+        .filter(Boolean)
+    } catch {
+      return [] as string[]
+    }
+  }, [imgs])
+
   const hasMany = urls.length > 1
   const safeCurrent = Math.min(Math.max(current, 0), Math.max(urls.length - 1, 0))
-  const hero = urls[safeCurrent] // string | undefined
+  const hero = urls[safeCurrent] || ''
 
   const title  = `${card.year ?? ''} ${card.brand ?? ''} #${card.card_no ?? ''}`.trim()
   const player = card.player?.full_name || 'Unknown Player'
@@ -77,14 +91,8 @@ export default function CardDetails() {
       ? `${card.grading_company ?? ''} ${card.grade ?? ''}${cert}`.trim()
       : 'Raw'
 
-  function prev() {
-    if (!urls.length) return
-    setCurrent((i) => (i - 1 + urls.length) % urls.length)
-  }
-  function next() {
-    if (!urls.length) return
-    setCurrent((i) => (i + 1) % urls.length)
-  }
+  function prev() { if (urls.length) setCurrent(i => (i - 1 + urls.length) % urls.length) }
+  function next() { if (urls.length) setCurrent(i => (i + 1) % urls.length) }
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-6">
@@ -93,7 +101,7 @@ export default function CardDetails() {
         <Link href="/" className="text-sm text-blue-600 hover:underline">← Back</Link>
       </div>
 
-      {/* Full-width hero image with carousel + click-to-zoom */}
+      {/* Hero + thumbs */}
       {hero ? (
         <div className="mx-auto w-full">
           <div className="relative overflow-hidden rounded-xl border bg-white">
@@ -108,7 +116,6 @@ export default function CardDetails() {
                 src={hero}
                 alt={title || 'card'}
                 className="w-full h-auto object-contain cursor-zoom-in"
-                loading="eager"
               />
             </button>
 
@@ -136,7 +143,7 @@ export default function CardDetails() {
             <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
               {urls.map((u, idx) => (
                 <button
-                  key={u + idx}
+                  key={`${u}-${idx}`}
                   onClick={() => setCurrent(idx)}
                   className={[
                     'relative h-20 w-16 shrink-0 overflow-hidden rounded-lg border',
@@ -151,7 +158,11 @@ export default function CardDetails() {
             </div>
           )}
         </div>
-      ) : null}
+      ) : (
+        <div className="rounded-xl border bg-white p-8 text-center text-slate-500">
+          No images for this card.
+        </div>
+      )}
 
       {/* Card panel */}
       <div className="mt-6 rounded-2xl border bg-white p-5 shadow-sm">
@@ -179,7 +190,7 @@ export default function CardDetails() {
         </div>
       </div>
 
-      {/* Lightbox modal — only render if hero exists */}
+      {/* Lightbox */}
       {lightbox && hero && (
         <div
           className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-sm flex items-center justify-center"
@@ -231,7 +242,6 @@ function Chip({ children, tone = 'neutral' }: { children: React.ReactNode; tone?
   const styles = tone === 'primary' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'
   return <span className={`px-3 py-1 rounded-full text-xs font-semibold ${styles}`}>{children}</span>
 }
-
 function Meta({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col">

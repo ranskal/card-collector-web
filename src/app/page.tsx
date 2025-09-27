@@ -207,7 +207,11 @@ export default function HomePage() {
     if (openFilter === 'sport')  setSportFilter(val)
     if (openFilter === 'player') setPlayerFilter(val)
     if (openFilter === 'year')   setYearFilter(val)
-    if (openFilter === 'type')   return ['Graded', 'Raw']
+    if (openFilter === 'type') {
+      if (val === '' || val === 'All') setTypeFilter('')
+      else if (val === 'Graded' || val === 'graded') setTypeFilter('graded')
+      else if (val === 'Raw' || val === 'raw') setTypeFilter('raw')
+    }
     closeDialog()
   }
 
@@ -216,7 +220,7 @@ export default function HomePage() {
     if (openFilter === 'sport')  return sportOptions
     if (openFilter === 'player') return playerOptions
     if (openFilter === 'year')   return yearOptions.map(String)
-    if (openFilter === 'type')   return ['All', 'Graded', 'Raw']
+    if (openFilter === 'type')   return ['Graded', 'Raw']
     return []
   }, [openFilter, sportOptions, playerOptions, yearOptions])
 

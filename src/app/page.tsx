@@ -145,12 +145,11 @@ export default function HomePage() {
 
   // Delete (permission-checked)
   async function handleDelete(card: CardRow) {
-    const label = [
-      card.player?.full_name ?? 'Unknown Player',
-      card.year ? String(card.year) : '—',
-      card.brand ?? '—',
-      card.card_no ? `#${card.card_no}` : undefined,
-    ].filter(Boolean).join(' • ')
+  const label =
+    `${card.player?.full_name || 'Unknown Player'} • ` +
+    (`${[card.year && String(card.year), card.brand, card.card_no && `#${card.card_no}`]
+        .filter(Boolean)
+        .join(' ')}` || '—')
 
     const ok = confirm(`Delete ${label}?\n\nThis will remove the card and its photo(s).`)
     if (!ok) return

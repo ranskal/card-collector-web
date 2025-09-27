@@ -66,13 +66,12 @@ export default function HomePage() {
 
   // sort + filters
   const [sortBy, setSortBy] = useState<SortMode>('combined')
-  const [sportFilter, setSportFilter] = useState<string>('')  // '' = All
-  const [playerFilter, setPlayerFilter] = useState<string>('')// '' = All
-  const [yearFilter, setYearFilter] = useState<string>('')    // '' = All
+  const [sportFilter, setSportFilter] = useState<string>('')   // '' = All
+  const [playerFilter, setPlayerFilter] = useState<string>('') // '' = All
+  const [yearFilter, setYearFilter] = useState<string>('')     // '' = All
 
   // pop-up state
   const [openFilter, setOpenFilter] = useState<FilterKey>(null)
-  const [tempValue, setTempValue] = useState<string>('')
 
   useEffect(() => {
     let active = true
@@ -183,27 +182,34 @@ export default function HomePage() {
   const playerLabel = playerFilter ? `Player: ${playerFilter}` : 'Player: All'
   const yearLabel   = yearFilter   ? `Year: ${yearFilter}`     : 'Year: All'
 
-  // ----- open pop-up for a given filter -----
-  function openFilterDialog(key: Exclude<FilterKey, null>) {
-    setOpenFilter(key)
-    if (key === 'sport')  setTempValue(sportFilter || '')
-    if (key === 'player') setTempValue(playerFilter || '')
-    if (key === 'year')   setTempValue(yearFilter || '')
-  }
+  // ----- open / close -----
+  function openFilterDialog(key: Exclude<FilterKey, null>) { setOpenFilter(key) }
   function closeDialog() { setOpenFilter(null) }
 
-  function applyDialog() {
-    if (openFilter === 'sport')  setSportFilter(tempValue)
-    if (openFilter === 'player') setPlayerFilter(tempValue)
-    if (openFilter === 'year')   setYearFilter(tempValue)
+  // immediate choose on click
+  function chooseFilter(val: string) {
+    if (openFilter === 'sport')  setSportFilter(val)
+    if (openFilter === 'player') setPlayerFilter(val)
+    if (openFilter === 'year')   setYearFilter(val)
     closeDialog()
   }
-  function clearDialog() {
-    if (openFilter === 'sport')  setSportFilter('')
-    if (openFilter === 'player') setPlayerFilter('')
-    if (openFilter === 'year')   setYearFilter('')
-    closeDialog()
-  }
+
+  // Build option list for current popup
+  const currentOptions: string[] = useMemo(() => {
+    if (openFilter === 'sport')  return sportOptions
+    if (openFilter === 'player') return playerOptions
+    if (openFilter === 'year')   return yearOptions.map(String)
+    return []
+  }, [openFilter, sportOptions, playerOptions, yearOptions])
+
+  // Current selected value
+  const currentValue = openFilter === 'sport'
+    ? sportFilter
+    : openFilter === 'player'
+    ? playerFilter
+    : openFilter === 'year'
+    ? yearFilter
+    : ''
 
   return (
     <div className="space-y-4">
@@ -309,7 +315,7 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* --- Filter pop-up --- */}
+      {/* --- Filter pop-up (click option to apply immediately) --- */}
       {openFilter && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={closeDialog}>
           <div
@@ -322,21 +328,35 @@ export default function HomePage() {
                : 'Select Year'}
             </div>
 
-            <select
-              className="w-full rounded border px-2 py-2"
-              value={tempValue}
-              onChange={(e)=>setTempValue(e.target.value)}
-            >
-              <option value="">{openFilter === 'year' ? 'All years' : 'All'}</option>
-              {openFilter === 'sport'  && sportOptions.map(s => <option key={s} value={s}>{s}</option>)}
-              {openFilter === 'player' && playerOptions.map(p => <option key={p} value={p}>{p}</option>)}
-              {openFilter === 'year'   && yearOptions.map(y => <option key={y} value={String(y)}>{y}</option>)}
-            </select>
+            <div className="max-h-[50vh] overflow-auto space-y-2">
+              {/* All option */}
+              <button
+                onClick={() => chooseFilter('')}
+                className={[
+                  'w-full text-left rounded-lg border px-3 py-2',
+                  currentValue === '' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 hover:bg-slate-50'
+                ].join(' ')}
+              >
+                All
+              </button>
 
-            <div className="mt-4 flex justify-end gap-2">
-              <button className="btn" onClick={closeDialog}>Cancel</button>
-              <button className="btn btn-outline" onClick={clearDialog}>Clear</button>
-              <button className="btn btn-primary" onClick={applyDialog}>Apply</button>
+              {/* Options */}
+              {currentOptions.map((opt) => (
+                <button
+                  key={opt}
+                  onClick={() => chooseFilter(opt)}
+                  className={[
+                    'w-full text-left rounded-lg border px-3 py-2',
+                    currentValue === opt ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 hover:bg-slate-50'
+                  ].join(' ')}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-3 flex justify-end">
+              <button className="btn" onClick={closeDialog}>Close</button>
             </div>
           </div>
         </div>

@@ -1,54 +1,55 @@
 'use client'
 
-import { use, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
 import { publicUrl } from '@/lib/storage'
 
-type ParamsP = { id: string }
-
 type CardImage = { storage_path: string; is_primary?: boolean | null }
 
-export default function CardDetails({
-  params,
-}: {
-  params: Promise<ParamsP> // Next 15: params is a Promise
-}) {
-  const { id } = use(params)
+export default function CardDetails() {
+  const params = useParams<{ id: string }>()
+  const id = Array.isArray(params?.id) ? params.id[0] : params?.id
+
   const [card, setCard] = useState<any | null>(null)
   const [current, setCurrent] = useState(0)
   const [lightbox, setLightbox] = useState(false)
 
   useEffect(() => {
+    if (!id) return
     let cancel = false
     ;(async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('cards')
-        .select(
-          `
+        .select(`
           id, year, brand, card_no, sport,
           is_graded, grade, grading_company, grading_no,
           player:players(full_name),
           card_images(storage_path, is_primary)
-        `
-        )
+        `)
         .eq('id', id)
         .maybeSingle()
 
       if (cancel) return
+      if (error) {
+        console.error('[card details] fetch error:', error.message)
+        setCard(null)
+        return
+      }
       const c = (data as any) ?? null
       setCard(c)
 
-      // Set initial image index to primary if present
+      // set initial index to primary if present
       const imgs: CardImage[] = Array.isArray(c?.card_images) ? c.card_images : []
-      const pIdx = Math.max(0, imgs.findIndex(i => i?.is_primary) || 0)
-      setCurrent(pIdx)
+      const idx = imgs.findIndex((i) => i?.is_primary)
+      setCurrent(Math.max(0, idx)) // -1 -> 0
     })()
     return () => { cancel = true }
   }, [id])
 
-  // Keyboard nav in lightbox
+  // Keyboard nav only when lightbox is open
   useEffect(() => {
     if (!lightbox) return
     function onKey(e: KeyboardEvent) {
@@ -58,12 +59,14 @@ export default function CardDetails({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lightbox, current, card])
 
+  if (!id) return <div className="py-16 text-center text-slate-500">Missing id.</div>
   if (!card) return <div className="py-16 text-center text-slate-500">Loading…</div>
 
   const imgs: CardImage[] = Array.isArray(card.card_images) ? card.card_images : []
-  const urls = useMemo(() => imgs.map(i => publicUrl(i.storage_path)), [imgs])
+  const urls = useMemo(() => imgs.map((i) => publicUrl(i.storage_path)), [imgs])
   const hasMany = urls.length > 1
   const safeCurrent = Math.min(Math.max(current, 0), Math.max(urls.length - 1, 0))
   const hero = urls[safeCurrent]
@@ -94,7 +97,7 @@ export default function CardDetails({
         </Link>
       </div>
 
-      {/* Hero image area (responsive width; click to open modal) */}
+      {/* Hero image with carousel & click-to-zoom */}
       {hero ? (
         <div className="mx-auto w-full sm:w-5/6 md:w-3/4">
           <div className="relative overflow-hidden rounded-xl border bg-white">
@@ -114,7 +117,6 @@ export default function CardDetails({
               />
             </button>
 
-            {/* Carousel arrows (only when multiple images) */}
             {hasMany && (
               <>
                 <button
@@ -135,7 +137,6 @@ export default function CardDetails({
             )}
           </div>
 
-          {/* Thumbnails */}
           {hasMany && (
             <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
               {urls.map((u, idx) => (
@@ -144,16 +145,14 @@ export default function CardDetails({
                   onClick={() => setCurrent(idx)}
                   className={[
                     'relative h-20 w-16 shrink-0 overflow-hidden rounded-lg border',
-                    idx === safeCurrent ? 'border-indigo-400 ring-2 ring-indigo-200' : 'border-slate-200'
+                    idx === safeCurrent
+                      ? 'border-indigo-400 ring-2 ring-indigo-200'
+                      : 'border-slate-200',
                   ].join(' ')}
                   title={`Image ${idx + 1}`}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={u}
-                    alt=""
-                    className="h-full w-full object-contain bg-white"
-                  />
+                  <img src={u} alt="" className="h-full w-full object-contain bg-white" />
                 </button>
               ))}
             </div>
@@ -199,7 +198,6 @@ export default function CardDetails({
             className="relative w-[96vw] max-w-5xl h-[88vh] rounded-xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Close */}
             <button
               onClick={() => setLightbox(false)}
               aria-label="Close"
@@ -208,8 +206,7 @@ export default function CardDetails({
               Close
             </button>
 
-            {/* Nav arrows (if multiple) */}
-            {hasMany && (
+            {urls.length > 1 && (
               <>
                 <button
                   onClick={prev}
@@ -228,7 +225,6 @@ export default function CardDetails({
               </>
             )}
 
-            {/* Big image */}
             <div className="absolute inset-0 bg-black">
               <Image
                 src={hero}
@@ -246,22 +242,9 @@ export default function CardDetails({
   )
 }
 
-function Chip({
-  children,
-  tone = 'neutral',
-}: {
-  children: React.ReactNode
-  tone?: 'neutral' | 'primary'
-}) {
-  const styles =
-    tone === 'primary'
-      ? 'bg-indigo-50 text-indigo-700'
-      : 'bg-slate-100 text-slate-700'
-  return (
-    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${styles}`}>
-      {children}
-    </span>
-  )
+function Chip({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: 'neutral' | 'primary' }) {
+  const styles = tone === 'primary' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'
+  return <span className={`px-3 py-1 rounded-full text-xs font-semibold ${styles}`}>{children}</span>
 }
 
 function Meta({ label, value }: { label: string; value: string }) {

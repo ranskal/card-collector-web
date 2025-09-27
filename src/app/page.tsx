@@ -151,7 +151,7 @@ export default function HomePage() {
         .filter(Boolean)
         .join(' ')}` || '—')
 
-    const ok = confirm(`Delete ${label}?\n\nThis will remove the card and its photo(s).`)
+    const ok = confirm(`Delete: ${label}?\n\nThis will remove the card and its photo(s).`)
     if (!ok) return
 
     const { data: deleted, error } = await supabase

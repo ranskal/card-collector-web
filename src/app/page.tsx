@@ -21,7 +21,6 @@ type CardRow = {
   card_images: { storage_path: string; is_primary?: boolean | null }[]
 }
 
-type SortMode = 'combined' | 'player' | 'year' | 'brand' | 'number'
 type FilterKey = 'sport' | 'player' | 'year' | 'type' | null
 type TypeFilter = '' | 'graded' | 'raw'
 
@@ -92,8 +91,7 @@ export default function HomePage() {
   const [cards, setCards] = useState<CardRow[]>([])
   const [loading, setLoading] = useState(true)
 
-  // sort + filters
-  const [sortBy, setSortBy] = useState<SortMode>('combined')
+  // filters
   const [sportFilter, setSportFilter] = useState<string>('')   // '' = All
   const [playerFilter, setPlayerFilter] = useState<string>('') // '' = All
   const [yearFilter, setYearFilter] = useState<string>('')     // '' = All
@@ -142,7 +140,7 @@ export default function HomePage() {
     return Array.from(set).sort((a,b)=>a-b)
   }, [cards])
 
-  // Apply filters to list (including Type)
+  // Apply filters
   const filtered = useMemo(() => {
     return applyFilters(cards, {
       sport: sportFilter,
@@ -152,25 +150,17 @@ export default function HomePage() {
     })
   }, [cards, sportFilter, playerFilter, yearFilter, typeFilter])
 
-  // Sort (default combined: Player → Year → Brand → Number)
+  // Always sort by: Player → Year → Brand → Card #
   const sorted = useMemo(() => {
     const list = [...filtered]
-    list.sort((a, b) => {
-      if (sortBy === 'combined') {
-        return (
-          cmpStr(a.player?.full_name, b.player?.full_name) ||
-          cmpNumAsc(a.year, b.year) ||
-          cmpStr(a.brand, b.brand) ||
-          cmpCardNo(a.card_no, b.card_no)
-        )
-      }
-      if (sortBy === 'player') return cmpStr(a.player?.full_name, b.player?.full_name)
-      if (sortBy === 'year')   return cmpNumAsc(a.year, b.year)
-      if (sortBy === 'brand')  return cmpStr(a.brand, b.brand)
-      return cmpCardNo(a.card_no, b.card_no)
-    })
+    list.sort((a, b) =>
+      cmpStr(a.player?.full_name, b.player?.full_name) ||
+      cmpNumAsc(a.year, b.year) ||
+      cmpStr(a.brand, b.brand) ||
+      cmpCardNo(a.card_no, b.card_no)
+    )
     return list
-  }, [filtered, sortBy])
+  }, [filtered])
 
   // ---- Counts for filter UIs (respect other filters; exclude the current dimension) ----
   const typeCounts = useMemo(() => {
@@ -266,7 +256,7 @@ export default function HomePage() {
     setCards(prev => prev.filter(c => c.id !== card.id))
   }
 
-  // ----- pill labels (Type pill has NO counts now) -----
+  // ----- pill labels (Type pill has NO counts) -----
   const sportLabel  = sportFilter  ? `Sport: ${sportFilter}`   : 'Sport: All'
   const playerLabel = playerFilter ? `Player: ${playerFilter}` : 'Player: All'
   const yearLabel   = yearFilter   ? `Year: ${yearFilter}`     : 'Year: All'
@@ -328,20 +318,9 @@ export default function HomePage() {
 
   return (
     <div className="space-y-4">
-      {/* Pinned Sort + Filter */}
+      {/* Pinned Filter bar (sort removed) */}
       <div className="sticky top-16 z-20 -mx-4 border-b border-slate-200/60 bg-slate-50/90 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80">
-        {/* Sort row */}
-        <div className="-mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-          <span>Sort:</span>
-          <Pill active={sortBy==='combined'} onClick={()=>setSortBy('combined')} title="Player → Year → Brand → #">Default</Pill>
-          <Pill active={sortBy==='player'} onClick={()=>setSortBy('player')}>Player</Pill>
-          <Pill active={sortBy==='year'}   onClick={()=>setSortBy('year')}>Year</Pill>
-          <Pill active={sortBy==='brand'}  onClick={()=>setSortBy('brand')}>Brand</Pill>
-          <Pill active={sortBy==='number'} onClick={()=>setSortBy('number')}>Number</Pill>
-        </div>
-
-        {/* Filter pills */}
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-slate-600">Filter:</span>
           <Pill active={!!sportFilter}  onClick={()=>openFilterDialog('sport')}>{sportLabel}</Pill>
           <Pill active={!!playerFilter} onClick={()=>openFilterDialog('player')}>{playerLabel}</Pill>
@@ -455,11 +434,7 @@ export default function HomePage() {
                 onClick={() => chooseFilter('')}
                 className={[
                   'w-full text-left rounded-lg border px-3 py-2',
-                  (openFilter === 'type'
-                    ? (currentValue === '' || currentValue === 'All')
-                    : currentValue === '')
-                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                    : 'border-slate-200 hover:bg-slate-50'
+                  currentValue === '' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 hover:bg-slate-50'
                 ].join(' ')}
               >
                 All ({allCountForOpen})
@@ -483,9 +458,7 @@ export default function HomePage() {
                     onClick={() => chooseFilter(opt)}
                     className={[
                       'w-full text-left rounded-lg border px-3 py-2',
-                      currentValue === opt
-                        ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                        : 'border-slate-200 hover:bg-slate-50'
+                      currentValue === opt ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 hover:bg-slate-50'
                     ].join(' ')}
                   >
                     {opt} ({count})

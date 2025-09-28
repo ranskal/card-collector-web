@@ -29,3 +29,11 @@ html, body { @apply bg-slate-50 text-slate-900; }
 /* Small extras */
 @utility shadow-soft { @apply shadow-sm; }
 @utility border-soft { @apply border border-slate-200; }
+
+
+/* Prevent iOS Safari auto-zoom on focused inputs */
+@supports (-webkit-touch-callout: none) {
+  input, select, textarea {
+    font-size: 16px;
+  }
+}

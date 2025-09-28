@@ -218,6 +218,9 @@ export default function AddPage() {
         if (imgErr) throw imgErr
       }
 
+    // iOS: avoid lingering focus (which causes auto-zoom) before we navigate
+    (document.activeElement as HTMLElement | null)?.blur?.();
+
       alert('Saved!')
       router.push('/')
     } catch (e: any) {

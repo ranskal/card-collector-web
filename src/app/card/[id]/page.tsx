@@ -69,14 +69,11 @@ export default function CardDetails({
   const title = `${card.year ?? ''} ${card.brand ?? ''} #${card.card_no ?? ''}`.trim()
   const player = card.player?.full_name || 'Unknown Player'
 
-  // 🔹 New graded label: "PSA 4 • #12345678" or just "PSA 4" if no cert
-  const graded = card.is_graded
-    ? [
-        [card.grading_company, card.grade].filter(Boolean).join(' ').trim(),
-        card.grading_no ? `#${card.grading_no}` : '',
-      ]
-        .filter(Boolean)
-        .join(' • ') || 'Graded'
+  // Grading chip text
+  const gradingChip = card.is_graded
+    ? `${card.grading_company ?? ''} ${card.grade ?? ''}${
+        card.grading_no ? ` (#${card.grading_no})` : ''
+      }`.trim()
     : 'Raw'
 
   return (
@@ -130,7 +127,7 @@ export default function CardDetails({
 
         <div className="mt-3 flex gap-2 flex-wrap">
           <span className="pill">{card.sport || '—'}</span>
-          <span className="pill">{graded}</span>
+          <span className="pill">{gradingChip}</span>
         </div>
 
         {/* Space reserved for RC / Auto chips later */}

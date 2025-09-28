@@ -22,17 +22,12 @@ type Card = {
   card_images: { storage_path: string; is_primary?: boolean | null }[] | null
 }
 
-export default function CardDetails({
-  params,
-}: {
-  params: Promise<ParamsP> // Next 15: params is a Promise
-}) {
+export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
   const { id } = use(params)
   const [card, setCard] = useState<Card | null>(null)
-  const [idx, setIdx] = useState(0) // active image index
-  const [open, setOpen] = useState(false) // lightbox
+  const [idx, setIdx] = useState(0)
+  const [open, setOpen] = useState(false)
 
-  // fetch card
   useEffect(() => {
     let cancel = false
     ;(async () => {
@@ -46,79 +41,64 @@ export default function CardDetails({
         `)
         .eq('id', id)
         .maybeSingle()
-
       if (!cancel) setCard((data as unknown as Card) ?? null)
     })()
-    return () => {
-      cancel = true
-    }
+    return () => { cancel = true }
   }, [id])
 
-  // default to primary image when card changes
   useEffect(() => {
     if (!card) return
     const imgs = Array.isArray(card.card_images) ? card.card_images : []
-    const primary = Math.max(
-      0,
-      imgs.findIndex((i) => i.is_primary) // -1 => fall back to 0
-    )
+    const primary = Math.max(0, imgs.findIndex(i => i.is_primary))
     setIdx(primary === -1 ? 0 : primary)
   }, [card])
 
-  // esc to close lightbox
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
-    }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false) }
     if (open) window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
   if (!card) return <div className="py-16 text-center text-slate-500">Loading…</div>
 
-  const imgs = (Array.isArray(card.card_images) ? card.card_images : []) as {
-    storage_path: string
-    is_primary?: boolean | null
-  }[]
-
-  const urls = imgs.map((i) => publicUrl(i.storage_path))
+  const imgs = (Array.isArray(card.card_images) ? card.card_images : []) as { storage_path: string; is_primary?: boolean | null }[]
+  const urls = imgs.map(i => publicUrl(i.storage_path))
   const activeUrl = urls[idx]
 
-  const title = `${card.year ?? ''} ${card.brand ?? ''} #${card.card_no ?? ''}`.trim()
+  const title  = `${card.year ?? ''} ${card.brand ?? ''} #${card.card_no ?? ''}`.trim()
   const player = card.player?.full_name || 'Unknown Player'
   const graded =
     card.is_graded && (card.grading_company || card.grade)
-      ? `${card.grading_company ?? ''} ${card.grade ?? ''}${
-          card.grading_no ? ` (#${card.grading_no})` : ''
-        }`.trim()
+      ? `${card.grading_company ?? ''} ${card.grade ?? ''}${card.grading_no ? ` (#${card.grading_no})` : ''}`.trim()
       : 'Raw'
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-6">
       {/* Back */}
       <div className="mb-4">
-        <Link href="/" className="text-sm text-blue-600 hover:underline">
-          ← Back
-        </Link>
+        <Link href="/" className="text-sm text-indigo-600 hover:underline">← Back</Link>
       </div>
 
-      {/* Hero image (tap to zoom) */}
+      {/* Hero (smaller, centered) */}
       {activeUrl ? (
         <>
-          <div
-            className="relative w-full overflow-hidden rounded-2xl border bg-white cursor-zoom-in"
-            style={{ height: '55vh' }}
-            onClick={() => setOpen(true)}
-            title="Tap to view larger"
-          >
-            <Image
-              src={activeUrl}
-              alt={title || 'card'}
-              fill
-              sizes="(max-width: 768px) 100vw, 800px"
-              className="object-contain"
-              priority
-            />
+          <div className="mx-auto w-[92%] sm:w-[88%] md:w-[85%]">
+            <div
+              className="relative w-full overflow-hidden rounded-2xl border bg-white cursor-zoom-in"
+              onClick={() => setOpen(true)}
+              title="Tap to view larger"
+            >
+              <div className="h-[48vh] sm:h-[52vh]">
+                <Image
+                  src={activeUrl}
+                  alt={title || 'card'}
+                  fill
+                  sizes="(max-width: 768px) 100vw, 800px"
+                  className="object-contain"
+                  priority
+                />
+              </div>
+            </div>
           </div>
 
           {/* Thumbnails */}

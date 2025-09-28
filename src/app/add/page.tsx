@@ -331,7 +331,7 @@ export default function AddPage() {
           value={tags}
           onChange={setTags}
           placeholder="Add a tag and press Enter (e.g., RC, Auto)"
-          suggestions={['RC','Auto','Refractor','Numbered','Patch','HOF','Rookie']}
+          suggestions={['RC','Auto','Refractor','Numbered','Patch','HOF']}
         />
       </div>
 

@@ -289,7 +289,7 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
                 value={tags}
                 onChange={setTags}
                 placeholder="Add a tag and press Enter (e.g., RC, Auto)"
-                suggestions={['RC','Auto','Refractor','Numbered','Patch','HOF','Rookie']}
+                suggestions={['RC','Auto','Refractor','Numbered','Patch','HOF']}
               />
               <textarea
                 className="mt-3 w-full rounded border px-2 py-1 text-sm"

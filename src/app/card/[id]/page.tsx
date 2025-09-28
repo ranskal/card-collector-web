@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useEffect, useMemo, useState } from 'react'
+import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
@@ -31,67 +31,72 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
   const [idx, setIdx] = useState(0)
   const [open, setOpen] = useState(false)
 
-  // tags state
+  // tags + notes UI state
   const [tags, setTags] = useState<string[]>([])
   const [initialTags, setInitialTags] = useState<string[]>([])
   const [origTagIds, setOrigTagIds] = useState<string[]>([])
-
-  // notes state
   const [notes, setNotes] = useState('')
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // fetch card
+  // --- helpers to (re)load the page data ---
+  async function fetchCardAndTags() {
+    // card
+    const { data: c, error: cErr } = await supabase
+      .from('cards')
+      .select(`
+        id, year, brand, card_no, sport,
+        is_graded, grade, grading_company, grading_no, notes,
+        player:players(full_name),
+        card_images(storage_path, is_primary)
+      `)
+      .eq('id', id)
+      .maybeSingle()
+    if (cErr) throw cErr
+    const cardRow = (c as unknown as Card) ?? null
+    setCard(cardRow)
+    setNotes(cardRow?.notes ?? '')
+
+    // tags
+    const { data: tagRows, error: tErr } = await supabase
+      .from('card_tags')
+      .select('tag_id, tags(label)')
+      .eq('card_id', id)
+    if (tErr) throw tErr
+
+    const labels = (tagRows ?? [])
+      .map((r: any) => r.tags?.label as string | undefined)
+      .filter(Boolean) as string[]
+
+    const ids = (tagRows ?? []).map((r: any) => r.tag_id as string)
+
+    setTags(labels)
+    setInitialTags(labels)
+    setOrigTagIds(ids)
+  }
+
+  // initial load
   useEffect(() => {
     let cancel = false
     ;(async () => {
-      const { data: c } = await supabase
-        .from('cards')
-        .select(`
-          id, year, brand, card_no, sport,
-          is_graded, grade, grading_company, grading_no, notes,
-          player:players(full_name),
-          card_images(storage_path, is_primary)
-        `)
-        .eq('id', id)
-        .maybeSingle()
-
-      if (cancel) return
-
-      const cardRow = (c as unknown as Card) ?? null
-      setCard(cardRow)
-      setNotes(cardRow?.notes ?? '')
-
-      // tags for this card
-      const { data: tagRows } = await supabase
-        .from('card_tags')
-        .select('tag_id, tags(label)')
-        .eq('card_id', id)
-
-      const labels =
-        (tagRows ?? [])
-          .map((r: any) => r.tags?.label as string | undefined)
-          .filter(Boolean) as string[]
-
-      const ids = (tagRows ?? []).map((r: any) => r.tag_id as string)
-
-      setTags(labels)
-      setInitialTags(labels)
-      setOrigTagIds(ids)
+      try {
+        await fetchCardAndTags()
+      } catch (e: any) {
+        if (!cancel) alert(e.message ?? e)
+      }
     })()
-
     return () => { cancel = true }
   }, [id])
 
-  // default to primary image when card changes
+  // pick the primary image by default
   useEffect(() => {
     if (!card) return
     const imgs = Array.isArray(card.card_images) ? card.card_images : []
-    const primary = Math.max(0, imgs.findIndex(i => i.is_primary)) // -1 => fallback to 0
+    const primary = Math.max(0, imgs.findIndex(i => i.is_primary)) // -1 → 0
     setIdx(primary === -1 ? 0 : primary)
   }, [card])
 
-  // esc to close lightbox
+  // esc closes lightbox
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false) }
     if (open) window.addEventListener('keydown', onKey)
@@ -111,18 +116,17 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
   const player = card.player?.full_name || 'Unknown Player'
   const graded =
     card.is_graded && (card.grading_company || card.grade)
-      ? `${card.grading_company ?? ''} ${card.grade ?? ''}${
-          card.grading_no ? ` (#${card.grading_no})` : ''
-        }`.trim()
+      ? `${card.grading_company ?? ''} ${card.grade ?? ''}${card.grading_no ? ` (#${card.grading_no})` : ''}`.trim()
       : 'Raw'
 
+  // --- SAVE TAGS + NOTES (with refresh) ---
   async function saveTagsAndNotes() {
     if (!card) return
     setSaving(true)
     try {
       const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
 
-      // Upsert tags by label -> get ids we want
+      // Upsert tags → get desired IDs
       let desiredTagIds: string[] = []
       if (clean.length) {
         const { data: up, error: upErr } = await supabase
@@ -133,31 +137,36 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
         desiredTagIds = (up ?? []).map((t: any) => t.id as string)
       }
 
-      // Diff against current links
+      // Diff links
       const toRemove = origTagIds.filter(id => !desiredTagIds.includes(id))
       const toAdd = desiredTagIds.filter(id => !origTagIds.includes(id))
 
       if (toRemove.length) {
-        await supabase.from('card_tags')
+        const { error: delErr } = await supabase
+          .from('card_tags')
           .delete()
           .eq('card_id', card.id)
           .in('tag_id', toRemove)
+        if (delErr) throw delErr
       }
       if (toAdd.length) {
-        await supabase.from('card_tags')
+        const { error: insErr } = await supabase
+          .from('card_tags')
           .insert(toAdd.map(tag_id => ({ card_id: card.id, tag_id })))
+        if (insErr) throw insErr
       }
 
-      // Update notes (null if empty)
+      // Update notes in DB
+      const nextNotes = notes.trim() ? notes.trim() : null
       const { error: nErr } = await supabase
         .from('cards')
-        .update({ notes: notes.trim() ? notes.trim() : null })
+        .update({ notes: nextNotes })
         .eq('id', card.id)
       if (nErr) throw nErr
 
-      // reflect saved state
-      setOrigTagIds(desiredTagIds)
-      setInitialTags(clean)
+      // Refresh local state from the server so the UI shows the saved data
+      await fetchCardAndTags()
+
       setEditing(false)
     } catch (e: any) {
       alert(`Save failed: ${e.message ?? e}`)
@@ -243,11 +252,7 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
               </button>
             ) : (
               <div className="flex items-center gap-2">
-                <button
-                  className="text-xs rounded-lg border px-2 py-1 hover:bg-slate-50"
-                  onClick={cancelEdit}
-                  disabled={saving}
-                >
+                <button className="text-xs rounded-lg border px-2 py-1 hover:bg-slate-50" onClick={cancelEdit} disabled={saving}>
                   Cancel
                 </button>
                 <button
@@ -263,12 +268,9 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
 
           {!editing ? (
             <>
-              {/* view mode */}
               <div className="flex flex-wrap gap-2">
                 {initialTags.length ? (
-                  initialTags.map(t => (
-                    <span key={t} className="pill">{t}</span>
-                  ))
+                  initialTags.map(t => <span key={t} className="pill">{t}</span>)
                 ) : (
                   <span className="text-sm text-slate-500">No tags</span>
                 )}
@@ -283,7 +285,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
             </>
           ) : (
             <>
-              {/* edit mode */}
               <TagInput
                 value={tags}
                 onChange={setTags}

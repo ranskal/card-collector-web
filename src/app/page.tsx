@@ -1,3 +1,4 @@
+// src/app/page.tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
@@ -76,13 +77,10 @@ function applyFilters(
   const { sport, player, year, type } = opts
   return list.filter((c) => {
     const sportOk = sport === undefined || !sport || c.sport === sport
-    const playerOk =
-      player === undefined || !player || c.player?.full_name === player
+    const playerOk = player === undefined || !player || c.player?.full_name === player
     const yearOk = year === undefined || !year || c.year === Number(year)
     const typeOk =
-      type === undefined ||
-      !type ||
-      (type === 'graded' ? c.is_graded === true : c.is_graded !== true)
+      type === undefined || !type || (type === 'graded' ? c.is_graded === true : c.is_graded !== true)
     return sportOk && playerOk && yearOk && typeOk
   })
 }
@@ -140,7 +138,7 @@ export default function HomePage() {
     return Array.from(set).sort((a,b)=>a-b)
   }, [cards])
 
-  // Apply filters
+  // Apply filters to list (including Type)
   const filtered = useMemo(() => {
     return applyFilters(cards, {
       sport: sportFilter,
@@ -150,7 +148,7 @@ export default function HomePage() {
     })
   }, [cards, sportFilter, playerFilter, yearFilter, typeFilter])
 
-  // Always sort by: Player → Year → Brand → Card #
+  // Always use combined sort: Player → Year → Brand → Number (all ASC)
   const sorted = useMemo(() => {
     const list = [...filtered]
     list.sort((a, b) =>
@@ -165,10 +163,7 @@ export default function HomePage() {
   // ---- Counts for filter UIs (respect other filters; exclude the current dimension) ----
   const typeCounts = useMemo(() => {
     const base = applyFilters(cards, {
-      sport: sportFilter,
-      player: playerFilter,
-      year: yearFilter,
-      type: undefined,
+      sport: sportFilter, player: playerFilter, year: yearFilter, type: undefined,
     })
     const graded = base.filter((c) => c.is_graded === true).length
     const all = base.length
@@ -177,10 +172,7 @@ export default function HomePage() {
 
   const sportCounts = useMemo(() => {
     const base = applyFilters(cards, {
-      player: playerFilter,
-      year: yearFilter,
-      type: typeFilter,
-      sport: undefined,
+      player: playerFilter, year: yearFilter, type: typeFilter, sport: undefined,
     })
     const by: Record<string, number> = {}
     for (const c of base) if (c.sport) by[c.sport] = (by[c.sport] ?? 0) + 1
@@ -189,10 +181,7 @@ export default function HomePage() {
 
   const playerCounts = useMemo(() => {
     const base = applyFilters(cards, {
-      sport: sportFilter,
-      year: yearFilter,
-      type: typeFilter,
-      player: undefined,
+      sport: sportFilter, year: yearFilter, type: typeFilter, player: undefined,
     })
     const by: Record<string, number> = {}
     for (const c of base) {
@@ -204,10 +193,7 @@ export default function HomePage() {
 
   const yearCounts = useMemo(() => {
     const base = applyFilters(cards, {
-      sport: sportFilter,
-      player: playerFilter,
-      type: typeFilter,
-      year: undefined,
+      sport: sportFilter, player: playerFilter, type: typeFilter, year: undefined,
     })
     const by: Record<string, number> = {}
     for (const c of base) {
@@ -223,13 +209,8 @@ export default function HomePage() {
   async function handleDelete(card: CardRow) {
     const label =
       `${card.player?.full_name || 'Unknown Player'} • ` +
-      (`${[
-        card.year && String(card.year),
-        card.brand,
-        card.card_no && `#${card.card_no}`,
-      ]
-        .filter(Boolean)
-        .join(' ')}` || '—')
+      (`${[card.year && String(card.year), card.brand, card.card_no && `#${card.card_no}`]
+        .filter(Boolean).join(' ')}` || '—')
 
     const ok = confirm(`Delete: ${label}?\n\nThis will remove the card and its photo(s).`)
     if (!ok) return
@@ -240,23 +221,18 @@ export default function HomePage() {
       .eq('id', card.id)
       .select('id')
 
-    if (error) {
-      alert(`Delete failed: ${error.message}`)
-      return
-    }
+    if (error) { alert(`Delete failed: ${error.message}`); return }
     if (!deleted || deleted.length === 0) {
       alert(`Could not delete “${label}”. You may not have permission (different session/user).`)
       return
     }
 
     const paths = (card.card_images ?? []).map(i => i.storage_path).filter(Boolean) as string[]
-    if (paths.length) {
-      try { await supabase.storage.from('card-images').remove(paths) } catch {}
-    }
+    if (paths.length) { try { await supabase.storage.from('card-images').remove(paths) } catch {} }
     setCards(prev => prev.filter(c => c.id !== card.id))
   }
 
-  // ----- pill labels (Type pill has NO counts) -----
+  // ----- pill labels (Type pill has NO counts now) -----
   const sportLabel  = sportFilter  ? `Sport: ${sportFilter}`   : 'Sport: All'
   const playerLabel = playerFilter ? `Player: ${playerFilter}` : 'Player: All'
   const yearLabel   = yearFilter   ? `Year: ${yearFilter}`     : 'Year: All'
@@ -292,33 +268,23 @@ export default function HomePage() {
 
   // Current selected value (for highlight)
   const currentValue =
-    openFilter === 'sport'
-      ? sportFilter
-      : openFilter === 'player'
-      ? playerFilter
-      : openFilter === 'year'
-      ? yearFilter
-      : openFilter === 'type'
-      ? typeFilter
-        ? (typeFilter === 'graded' ? 'Graded' : 'Raw')
-        : ''
-      : ''
+    openFilter === 'sport'  ? sportFilter :
+    openFilter === 'player' ? playerFilter :
+    openFilter === 'year'   ? yearFilter :
+    openFilter === 'type'   ? (typeFilter ? (typeFilter === 'graded' ? 'Graded' : 'Raw') : '') :
+    ''
 
   // Count for the “All” button in the popup
   const allCountForOpen =
-    openFilter === 'sport'
-      ? sportCounts.all
-      : openFilter === 'player'
-      ? playerCounts.all
-      : openFilter === 'year'
-      ? yearCounts.all
-      : openFilter === 'type'
-      ? typeCounts.all
-      : 0
+    openFilter === 'sport'  ? sportCounts.all :
+    openFilter === 'player' ? playerCounts.all :
+    openFilter === 'year'   ? yearCounts.all :
+    openFilter === 'type'   ? typeCounts.all :
+    0
 
   return (
-    <div className="space-y-4">
-      {/* Pinned Filter bar (sort removed) */}
+    <div className="space-y-3">
+      {/* Sticky Filter bar (no Sort) */}
       <div className="sticky top-16 z-20 -mx-4 border-b border-slate-200/60 bg-slate-50/90 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-slate-600">Filter:</span>
@@ -326,7 +292,6 @@ export default function HomePage() {
           <Pill active={!!playerFilter} onClick={()=>openFilterDialog('player')}>{playerLabel}</Pill>
           <Pill active={!!yearFilter}   onClick={()=>openFilterDialog('year')}>{yearLabel}</Pill>
           <Pill active={!!typeFilter}   onClick={()=>openFilterDialog('type')}>{typeLabel}</Pill>
-
           <button
             onClick={() => { setSportFilter(''); setPlayerFilter(''); setYearFilter(''); setTypeFilter('') }}
             className="btn btn-outline ml-auto"
@@ -341,9 +306,7 @@ export default function HomePage() {
       {!loading && (
         <div className="text-xs text-slate-500">{sorted.length} card{sorted.length===1?'':'s'}</div>
       )}
-      {loading && (
-        <div className="py-16 text-center text-slate-500">Loading…</div>
-      )}
+      {loading && <div className="py-16 text-center text-slate-500">Loading…</div>}
 
       {/* List */}
       <div className="space-y-2">
@@ -357,17 +320,11 @@ export default function HomePage() {
             : 'Raw'
 
           return (
-            <div key={c.id} className="card p-2">
+            <div key={c.id} className="card rounded-xl p-2">
               <div className="flex items-center gap-2">
                 <div className="relative h-16 w-16 overflow-hidden rounded-xl border border-slate-200 bg-white">
                   {url && (
-                    <Image
-                      src={url}
-                      alt=""
-                      fill
-                      sizes="64px"
-                      className="object-contain"
-                    />
+                    <Image src={url} alt="" fill sizes="64px" className="object-contain" />
                   )}
                 </div>
 
@@ -377,9 +334,7 @@ export default function HomePage() {
                   </div>
                   <div className="truncate text-xs text-slate-600">{title}</div>
                   <div className="mt-1">
-                  <span className="pill px-2 py-0.5 text-[11px] whitespace-normal break-words">
-                    {chip || 'Raw'}
-                  </span>
+                    <span className="pill px-2 py-0.5 text-[11px]">{chip || 'Raw'}</span>
                   </div>
                 </div>
 
@@ -417,10 +372,7 @@ export default function HomePage() {
       {/* --- Filter pop-up (click option to apply immediately) --- */}
       {openFilter && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={closeDialog}>
-          <div
-            className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 text-sm font-semibold text-slate-800">
               {openFilter === 'sport' ? 'Select Sport'
                : openFilter === 'player' ? 'Select Player'
@@ -437,21 +389,22 @@ export default function HomePage() {
                   currentValue === '' ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 hover:bg-slate-50'
                 ].join(' ')}
               >
-                All ({allCountForOpen})
+                All ({
+                  openFilter === 'sport'  ? sportCounts.all :
+                  openFilter === 'player' ? playerCounts.all :
+                  openFilter === 'year'   ? yearCounts.all :
+                  openFilter === 'type'   ? typeCounts.all : 0
+                })
               </button>
 
               {/* Options with counts */}
               {currentOptions.map((opt) => {
                 let count = 0
-                if (openFilter === 'type') {
-                  count = opt === 'Graded' ? typeCounts.graded : typeCounts.raw
-                } else if (openFilter === 'sport') {
-                  count = sportCounts.by[opt] ?? 0
-                } else if (openFilter === 'player') {
-                  count = playerCounts.by[opt] ?? 0
-                } else if (openFilter === 'year') {
-                  count = yearCounts.by[opt] ?? 0
-                }
+                if (openFilter === 'type')      count = opt === 'Graded' ? typeCounts.graded : typeCounts.raw
+                else if (openFilter === 'sport')  count = sportCounts.by[opt] ?? 0
+                else if (openFilter === 'player') count = playerCounts.by[opt] ?? 0
+                else if (openFilter === 'year')   count = yearCounts.by[opt] ?? 0
+
                 return (
                   <button
                     key={opt}

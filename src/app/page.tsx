@@ -202,7 +202,7 @@ export default function HomePage() {
   function openFilterDialog(key: Exclude<FilterKey, null>) { setOpenFilter(key) }
   function closeDialog() { setOpenFilter(null) }
 
-  // immediate choose on click (maps Type labels to values)
+  // immediate choose on click
   function chooseFilter(val: string) {
     if (openFilter === 'sport')  setSportFilter(val)
     if (openFilter === 'player') setPlayerFilter(val)
@@ -215,7 +215,7 @@ export default function HomePage() {
     closeDialog()
   }
 
-  // Build option list for current popup
+  // Build option list for current popup (Type has only Graded/Raw; "All" is the shared top button)
   const currentOptions: string[] = useMemo(() => {
     if (openFilter === 'sport')  return sportOptions
     if (openFilter === 'player') return playerOptions
@@ -234,31 +234,34 @@ export default function HomePage() {
 
   return (
     <div className="space-y-4">
-      {/* Sort row */}
-      <div className="-mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-        <span>Sort:</span>
-        <Pill active={sortBy==='combined'} onClick={()=>setSortBy('combined')} title="Player → Year → Brand → #">Default</Pill>
-        <Pill active={sortBy==='player'} onClick={()=>setSortBy('player')}>Player</Pill>
-        <Pill active={sortBy==='year'}   onClick={()=>setSortBy('year')}>Year</Pill>
-        <Pill active={sortBy==='brand'}  onClick={()=>setSortBy('brand')}>Brand</Pill>
-        <Pill active={sortBy==='number'} onClick={()=>setSortBy('number')}>Number</Pill>
-      </div>
+      {/* Sticky controls under sticky header */}
+      <div className="sticky top-16 z-20 -mx-4 border-b bg-slate-50/80 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-slate-50/60">
+        {/* Sort row */}
+        <div className="-mt-1 flex flex-wrap items-center gap-2 text-xs sm:text-sm text-slate-600">
+          <span>Sort:</span>
+          <Pill active={sortBy==='combined'} onClick={()=>setSortBy('combined')} title="Player → Year → Brand → #">Default</Pill>
+          <Pill active={sortBy==='player'} onClick={()=>setSortBy('player')}>Player</Pill>
+          <Pill active={sortBy==='year'}   onClick={()=>setSortBy('year')}>Year</Pill>
+          <Pill active={sortBy==='brand'}  onClick={()=>setSortBy('brand')}>Brand</Pill>
+          <Pill active={sortBy==='number'} onClick={()=>setSortBy('number')}>Number</Pill>
+        </div>
 
-      {/* Filter pills (now includes Type) */}
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-slate-600">Filter:</span>
-        <Pill active={!!sportFilter}  onClick={()=>openFilterDialog('sport')}>{sportLabel}</Pill>
-        <Pill active={!!playerFilter} onClick={()=>openFilterDialog('player')}>{playerLabel}</Pill>
-        <Pill active={!!yearFilter}   onClick={()=>openFilterDialog('year')}>{yearLabel}</Pill>
-        <Pill active={!!typeFilter}   onClick={()=>openFilterDialog('type')}>{typeLabel}</Pill>
+        {/* Filter pills */}
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+          <span className="text-slate-600">Filter:</span>
+          <Pill active={!!sportFilter}  onClick={()=>openFilterDialog('sport')}>{sportLabel}</Pill>
+          <Pill active={!!playerFilter} onClick={()=>openFilterDialog('player')}>{playerLabel}</Pill>
+          <Pill active={!!yearFilter}   onClick={()=>openFilterDialog('year')}>{yearLabel}</Pill>
+          <Pill active={!!typeFilter}   onClick={()=>openFilterDialog('type')}>{typeLabel}</Pill>
 
-        <button
-          onClick={() => { setSportFilter(''); setPlayerFilter(''); setYearFilter(''); setTypeFilter('') }}
-          className="btn btn-outline ml-auto"
-          title="Clear filters"
-        >
-          Clear
-        </button>
+          <button
+            onClick={() => { setSportFilter(''); setPlayerFilter(''); setYearFilter(''); setTypeFilter('') }}
+            className="btn btn-outline ml-auto"
+            title="Clear filters"
+          >
+            Clear
+          </button>
+        </div>
       </div>
 
       {/* Count */}
@@ -270,7 +273,7 @@ export default function HomePage() {
         <div className="py-16 text-center text-slate-500">Loading…</div>
       )}
 
-      {/* List (thumb a little bigger: 64px) */}
+      {/* List */}
       <div className="space-y-2">
         {sorted.map((c) => {
           const imgs = Array.isArray(c.card_images) ? c.card_images : []

@@ -1,6 +1,7 @@
+// src/app/card/[id]/page.tsx
 'use client'
 
-import { use, useEffect, useMemo, useState } from 'react'
+import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { supabase } from '@/lib/supabase'
@@ -18,6 +19,8 @@ type Card = {
   grade: number | null
   grading_company: string | null
   grading_no: string | null
+  tags?: string[] | null
+  notes?: string | null
   player: { full_name?: string } | null
   card_images: { storage_path: string; is_primary?: boolean | null }[] | null
 }
@@ -36,23 +39,27 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
         .select(`
           id, year, brand, card_no, sport,
           is_graded, grade, grading_company, grading_no,
+          tags, notes,
           player:players(full_name),
           card_images(storage_path, is_primary)
         `)
         .eq('id', id)
         .maybeSingle()
+
       if (!cancel) setCard((data as unknown as Card) ?? null)
     })()
     return () => { cancel = true }
   }, [id])
 
+  // default to primary image (or 0)
   useEffect(() => {
     if (!card) return
     const imgs = Array.isArray(card.card_images) ? card.card_images : []
-    const primary = Math.max(0, imgs.findIndex(i => i.is_primary))
+    const primary = imgs.findIndex(i => i.is_primary)
     setIdx(primary === -1 ? 0 : primary)
   }, [card])
 
+  // esc to close lightbox
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false) }
     if (open) window.addEventListener('keydown', onKey)
@@ -61,7 +68,10 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
 
   if (!card) return <div className="py-16 text-center text-slate-500">Loading…</div>
 
-  const imgs = (Array.isArray(card.card_images) ? card.card_images : []) as { storage_path: string; is_primary?: boolean | null }[]
+  const imgs = (Array.isArray(card.card_images) ? card.card_images : []) as {
+    storage_path: string
+    is_primary?: boolean | null
+  }[]
   const urls = imgs.map(i => publicUrl(i.storage_path))
   const activeUrl = urls[idx]
 
@@ -79,7 +89,7 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
         <Link href="/" className="text-sm text-indigo-600 hover:underline">← Back</Link>
       </div>
 
-      {/* Hero (smaller, centered) */}
+      {/* Hero (slightly smaller, centered) */}
       {activeUrl ? (
         <>
           <div className="mx-auto w-[92%] sm:w-[88%] md:w-[85%]">
@@ -128,10 +138,21 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
         <h1 className="text-2xl font-extrabold text-slate-900">{player}</h1>
         <p className="mt-1 text-slate-600">{title}</p>
 
-        <div className="mt-3 flex gap-2 flex-wrap">
+        <div className="mt-3 flex flex-wrap gap-2">
           <span className="pill">{card.sport || '—'}</span>
           <span className="pill whitespace-normal break-words">{graded}</span>
+          {(card.tags?.length ?? 0) > 0 &&
+            card.tags!.map(t => (
+              <span key={t} className="pill">{t}</span>
+            ))
+          }
         </div>
+
+        {card.notes && (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 whitespace-pre-wrap">
+            {card.notes}
+          </div>
+        )}
       </div>
 
       {/* Lightbox */}

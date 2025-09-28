@@ -130,7 +130,7 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
 
         <div className="mt-3 flex gap-2 flex-wrap">
           <span className="pill">{card.sport || '—'}</span>
-          <span className="pill">{graded}</span>
+          <span className="pill whitespace-normal break-words">{graded}</span>
         </div>
       </div>
 

@@ -377,9 +377,9 @@ export default function HomePage() {
                   </div>
                   <div className="truncate text-xs text-slate-600">{title}</div>
                   <div className="mt-1">
-                    <span className="pill px-2 py-0.5 text-[11px]">
-                      {chip || 'Raw'}
-                    </span>
+                  <span className="pill px-2 py-0.5 text-[11px] whitespace-normal break-words">
+                    {chip || 'Raw'}
+                  </span>
                   </div>
                 </div>
 

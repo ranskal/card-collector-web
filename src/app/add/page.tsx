@@ -1,3 +1,4 @@
+// src/app/add/page.tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -6,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { ensureUser } from '@/lib/auth'
 import { useRouter } from 'next/navigation'
 import CropperModal from '@/components/CropperModal'
+import TagInput from '@/components/TagInput'
 
 type Player = { id: string; full_name: string }
 
@@ -13,7 +15,6 @@ const DEFAULT_SPORTS = ['Baseball', 'Basketball', 'Football', 'Hockey', 'Miscell
 const DEFAULT_BRANDS = ['Topps', 'Fleer', 'Donruss', 'Philadelphia'] as const
 const DEFAULT_COMPANIES = ['PSA', 'SGC', 'BVG', 'Beckett', 'SWG', 'CGC'] as const
 
-// Local preview item (cropped file kept in-memory until save)
 type LocalImg = { file: File; url: string; isPrimary: boolean }
 
 export default function AddPage() {
@@ -44,10 +45,14 @@ export default function AddPage() {
   const [gradingNo, setGradingNo] = useState('')
   const [grade, setGrade] = useState('')
 
+  // NEW: tags & notes
+  const [tags, setTags] = useState<string[]>([])
+  const [notes, setNotes] = useState('')
+
   // images (cropped files + previews)
   const [images, setImages] = useState<LocalImg[]>([])
 
-  // ---- cropping queue state ----
+  // cropping queue state
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [cropQueue, setCropQueue] = useState<File[]>([])
   const [activeFile, setActiveFile] = useState<File | null>(null)
@@ -77,7 +82,6 @@ export default function AddPage() {
   const showNewBrand = brandChoice === '__OTHER_BRAND__'
   const showNewCompany = isGraded && companyChoice === '__OTHER_COMPANY__'
 
-  // add custom values inline
   function addSport() {
     const s = customSport.trim()
     if (!s) return
@@ -100,22 +104,19 @@ export default function AddPage() {
     setCustomCompany('')
   }
 
-  // ---- image picking + crop flow ----
   function openPicker() {
     fileInputRef.current?.click()
   }
 
   function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
-    e.target.value = '' // allow re-picking same files later
+    e.target.value = ''
     if (!files.length) return
     setCropQueue(files)
     setActiveFile(files[0])
   }
 
-  // When a crop is confirmed, turn the Blob into a File and push to previews
   async function handleCropped(blob: Blob) {
-    // name the new file; keep jpg mime
     const croppedFile = new File([blob], `crop-${Date.now()}.jpg`, { type: blob.type || 'image/jpeg' })
     const url = URL.createObjectURL(croppedFile)
 
@@ -124,7 +125,6 @@ export default function AddPage() {
       return [...prev, { file: croppedFile, url, isPrimary: isFirst }]
     })
 
-    // advance the queue
     setCropQueue(q => {
       const [, ...rest] = q
       setActiveFile(rest[0] ?? null)
@@ -132,7 +132,6 @@ export default function AddPage() {
     })
   }
 
-  // Skip current file and move to next
   function cancelCrop() {
     setCropQueue(q => {
       const [, ...rest] = q
@@ -141,27 +140,23 @@ export default function AddPage() {
     })
   }
 
-  // preview helpers
   function makePrimary(i: number) {
     setImages(prev => prev.map((img, idx) => ({ ...img, isPrimary: idx === i })))
   }
   function removeImage(i: number) {
     setImages(prev => {
       const next = prev.filter((_, idx) => idx !== i)
-      // ensure at least one remains primary
       if (next.length && !next.some(n => n.isPrimary)) next[0].isPrimary = true
       return next
     })
   }
   function clearImages() {
     setImages(prev => {
-      // clean up ObjectURLs
       prev.forEach(p => URL.revokeObjectURL(p.url))
       return []
     })
   }
 
-  // save to DB
   async function save() {
     try {
       const u = await ensureUser()
@@ -215,7 +210,7 @@ export default function AddPage() {
         }
       }
 
-      // create card
+      // create card (now includes tags + notes)
       const { data: card, error: cErr } = await supabase
         .from('cards')
         .insert({
@@ -228,6 +223,8 @@ export default function AddPage() {
           grading_company: gradingCompany,
           grading_no: isGraded ? (gradingNo || null) : null,
           grade: isGraded && grade ? Number(grade) : null,
+          tags,                 // <-- added
+          notes: notes || null, // <-- added
         })
         .select()
         .single()
@@ -262,11 +259,6 @@ export default function AddPage() {
       alert(`Save failed: ${e.message ?? e}`)
     }
   }
-
-  // small helpers
-  const titlePreview = useMemo(() => {
-    return `${year || '—'} ${showNewBrand ? customBrand : brandChoice || '—'} #${cardNo || '—'}`
-  }, [year, brandChoice, customBrand, showNewBrand, cardNo])
 
   return (
     <div className="p-4 max-w-3xl mx-auto space-y-4">
@@ -371,7 +363,6 @@ export default function AddPage() {
         >
           {isGraded ? 'Graded: ON' : 'Graded: OFF'}
         </button>
-        <div className="text-sm text-gray-500">{titlePreview}</div>
       </div>
 
       {isGraded && (
@@ -423,11 +414,28 @@ export default function AddPage() {
         </>
       )}
 
-      {/* Images */}
+      {/* Tags */}
+      <div className="space-y-1">
+        <label className="text-sm font-medium">Tags</label>
+        <TagInput value={tags} onChange={setTags} />
+      </div>
+
+      {/* Notes */}
+      <div className="space-y-1">
+        <label className="text-sm font-medium">Notes</label>
+        <textarea
+          className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+          rows={3}
+          placeholder="Any comments or notes…"
+          value={notes}
+          onChange={(e)=>setNotes(e.target.value)}
+        />
+      </div>
+
+      {/* Photos */}
       <div className="space-y-2">
         <label className="text-sm font-medium">Photos</label>
 
-        {/* Hidden picker + button */}
         <input
           ref={fileInputRef}
           type="file"
@@ -489,11 +497,10 @@ export default function AddPage() {
         </button>
       </div>
 
-      {/* Cropper modal steps through selected files */}
       {activeFile && (
         <CropperModal
           file={activeFile}
-          aspect={2 / 3}          // trading card-ish
+          aspect={2 / 3}
           onCancel={cancelCrop}
           onDone={handleCropped}
         />

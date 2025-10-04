@@ -1,7 +1,8 @@
 // src/app/page.tsx
 'use client'
+import { Suspense } from 'react'
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -30,7 +31,6 @@ type TypeFilter = '' | 'graded' | 'raw'
 function publicUrl(path: string) {
   return supabase.storage.from('card-images').getPublicUrl(path).data.publicUrl
 }
-
 function Pill({
   active,
   children,
@@ -38,11 +38,7 @@ function Pill({
   title,
 }: { active?: boolean; children: React.ReactNode; onClick: () => void; title?: string }) {
   return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={['pill', active ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : ''].join(' ')}
-    >
+    <button onClick={onClick} title={title} className={['pill', active ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : ''].join(' ')}>
       {children}
     </button>
   )
@@ -50,10 +46,8 @@ function Pill({
 
 // helpers
 const s = (v: unknown) => (v ?? '').toString()
-const cmpStr = (a?: string | null, b?: string | null) =>
-  s(a).localeCompare(s(b), undefined, { sensitivity: 'base', numeric: true })
-const cmpNumAsc = (a?: number | null, b?: number | null) =>
-  (a ?? Number.MAX_SAFE_INTEGER) - (b ?? Number.MAX_SAFE_INTEGER)
+const cmpStr = (a?: string | null, b?: string | null) => s(a).localeCompare(s(b), undefined, { sensitivity: 'base', numeric: true })
+const cmpNumAsc = (a?: number | null, b?: number | null) => (a ?? Number.MAX_SAFE_INTEGER) - (b ?? Number.MAX_SAFE_INTEGER)
 const cmpCardNo = (a?: string | null, b?: string | null) => {
   const na = parseInt((a ?? '').replace(/[^\d]/g, ''), 10)
   const nb = parseInt((b ?? '').replace(/[^\d]/g, ''), 10)
@@ -95,7 +89,10 @@ function Home() {
 
   const [openFilter, setOpenFilter] = useState<FilterKey>(null)
 
-  // sync FROM URL → state (handles back/forward + soft nav)
+  // track last load to know when to refresh after back
+  const lastLoadedRef = useRef<number>(0)
+
+  // ⬇️ Sync state FROM the URL (handles iOS back/forward & soft nav)
   useEffect(() => {
     const sURL = sp.get('sport') || ''
     const pURL = sp.get('player') || ''
@@ -111,7 +108,7 @@ function Home() {
     if (!arraysEqual(tagsURL, tagFilter)) setTagFilter(tagsURL)
   }, [sp]) // compare before setting to avoid loops
 
-  // keep URL in sync with state (replace; keep scroll)
+  // Keep URL in sync with state (replace; no scroll)
   const lastQs = useRef<string>('')
   useEffect(() => {
     const q = new URLSearchParams()
@@ -143,35 +140,48 @@ function Home() {
       .order('created_at', { ascending: false })
     setCards((data as unknown as CardRow[]) ?? [])
     setLoading(false)
+    lastLoadedRef.current = Date.now() // ✅ mark when we fetched
   }
-
-  // initial load
   useEffect(() => { loadCards() }, [])
 
-  // ✅ refresh when returning from details (bfcache on iOS)
+  // refresh when returning from details if something changed
   useEffect(() => {
-    const onFocus = () => loadCards()
-    const onVis = () => { if (document.visibilityState === 'visible') loadCards() }
-    const onPageShow = (e: PageTransitionEvent) => { if (e.persisted) loadCards() } // ← no ts-expect-error
+    const checkUpdated = () => {
+      try {
+        const ts = Number(localStorage.getItem('cards_last_update') || '0')
+        if (ts > lastLoadedRef.current) {
+          loadCards()
+        }
+      } catch {}
+    }
+    const onPageShow = () => checkUpdated()
 
-    window.addEventListener('focus', onFocus)
-    document.addEventListener('visibilitychange', onVis)
+    window.addEventListener('focus', checkUpdated)
+    document.addEventListener('visibilitychange', checkUpdated)
     window.addEventListener('pageshow', onPageShow)
+
     return () => {
-      window.removeEventListener('focus', onFocus)
-      document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('focus', checkUpdated)
+      document.removeEventListener('visibilitychange', checkUpdated)
       window.removeEventListener('pageshow', onPageShow)
     }
   }, [])
 
   // options
-  const sportOptions  = useMemo(() => Array.from(new Set(cards.flatMap(c => c.sport ? [c.sport] : []))).sort(), [cards])
+  const sportOptions = useMemo(() => Array.from(new Set(cards.flatMap(c => c.sport ? [c.sport] : []))).sort(), [cards])
   const playerOptions = useMemo(() => Array.from(new Set(cards.flatMap(c => c.player?.full_name ? [c.player.full_name] : []))).sort((a,b)=>a.localeCompare(b)), [cards])
-  const yearOptions   = useMemo(() => Array.from(new Set(cards.flatMap(c => typeof c.year === 'number' ? [c.year] : []))).sort((a,b)=>a-b), [cards])
-  const tagOptions    = useMemo(() => Array.from(new Set(cards.flatMap(c => (c.card_tags ?? []).map(ct => ct?.tags?.label).filter(Boolean) as string[]))).sort((a,b)=>a.localeCompare(b)), [cards])
+  const yearOptions = useMemo(() => Array.from(new Set(cards.flatMap(c => typeof c.year === 'number' ? [c.year] : []))).sort((a,b)=>a-b), [cards])
+  const tagOptions = useMemo(
+    () => Array.from(new Set(cards.flatMap(c => (c.card_tags ?? []).map(ct => ct?.tags?.label).filter(Boolean) as string[]))).sort((a,b)=>a.localeCompare(b)),
+    [cards]
+  )
 
   // filtered + sorted
-  const filtered = useMemo(() => applyFilters(cards, { sport: sportFilter, player: playerFilter, year: yearFilter, type: typeFilter, tags: tagFilter }), [cards, sportFilter, playerFilter, yearFilter, typeFilter, tagFilter])
+  const filtered = useMemo(
+    () => applyFilters(cards, { sport: sportFilter, player: playerFilter, year: yearFilter, type: typeFilter, tags: tagFilter }),
+    [cards, sportFilter, playerFilter, yearFilter, typeFilter, tagFilter]
+  )
+
   const sorted = useMemo(() => {
     const list = [...filtered]
     list.sort((a, b) =>
@@ -299,7 +309,6 @@ function Home() {
       {!loading && <div className="text-xs text-slate-500">{sorted.length} card{sorted.length===1?'':'s'}</div>}
       {loading && <div className="py-16 text-center text-slate-500">Loading…</div>}
 
-      {/* List */}
       <div className="space-y-2">
         {sorted.map((c) => {
           const imgs = Array.isArray(c.card_images) ? c.card_images : []
@@ -308,7 +317,6 @@ function Home() {
           const title = `${c.year ?? ''} ${c.brand ?? ''} #${c.card_no ?? ''}`.trim()
           const chip = c.is_graded ? `${c.grading_company ?? ''} ${c.grade ?? ''}${c.grading_no ? ` (#${c.grading_no})` : ''}`.trim() : 'Raw'
 
-          // preserve filters when navigating to details
           const query: Record<string, string | string[]> = {}
           if (sportFilter) query.sport = sportFilter
           if (playerFilter) query.player = playerFilter
@@ -335,11 +343,7 @@ function Home() {
                   >
                     Details
                   </Link>
-                  <button
-                    onClick={() => handleDelete(c)}
-                    title="Delete"
-                    className="rounded-lg border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                  >
+                  <button onClick={() => handleDelete(c)} title="Delete" className="rounded-lg border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50">
                     Delete
                   </button>
                 </div>
@@ -358,28 +362,21 @@ function Home() {
         )}
       </div>
 
-      {/* Filter dialog */}
       {openFilter && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={closeDialog}>
           <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-3 text-sm font-semibold text-slate-800">
-              {openFilter === 'sport' ? 'Select Sport'
-               : openFilter === 'player' ? 'Select Player'
-               : openFilter === 'year' ? 'Select Year'
-               : openFilter === 'type' ? 'Select Type'
-               : 'Select Tags'}
+              {openFilter === 'sport' ? 'Select Sport' : openFilter === 'player' ? 'Select Player' : openFilter === 'year' ? 'Select Year' : openFilter === 'type' ? 'Select Type' : 'Select Tags'}
             </div>
 
-            <div className="max-h=[50vh] max-h-[50vh] overflow-auto space-y-2">
+            <div className="max-h-[50vh] overflow-auto space-y-2">
               <button
                 onClick={() => { openFilter === 'tags' ? setTagFilter([]) : chooseFilter('') }}
                 className={[
                   'w-full text-left rounded-lg border px-3 py-2',
                   (openFilter === 'tags'
                     ? tagFilter.length === 0
-                    : (openFilter === 'type'
-                        ? (currentValue === '' || currentValue === 'All')
-                        : currentValue === '')
+                    : (openFilter === 'type' ? (currentValue === '' || currentValue === 'All') : currentValue === '')
                   )
                     ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
                     : 'border-slate-200 hover:bg-slate-50'

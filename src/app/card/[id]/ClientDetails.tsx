@@ -1,3 +1,4 @@
+// src/app/card/[id]/ClientDetails.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -39,6 +40,7 @@ export default function ClientDetails({ id }: { id: string }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // --- helpers to (re)load the page data ---
   async function fetchCardAndTags() {
     // card
     const { data: c, error: cErr } = await supabase
@@ -78,17 +80,21 @@ export default function ClientDetails({ id }: { id: string }) {
   useEffect(() => {
     let cancel = false
     ;(async () => {
-      try { await fetchCardAndTags() } catch (e: any) { if (!cancel) alert(e.message ?? e) }
+      try {
+        await fetchCardAndTags()
+      } catch (e: any) {
+        if (!cancel) alert(e.message ?? e)
+      }
     })()
     return () => { cancel = true }
   }, [id])
 
-  // primary image index
+  // pick the primary image by default
   useEffect(() => {
     if (!card) return
     const imgs = Array.isArray(card.card_images) ? card.card_images : []
-    const primary = Math.max(0, imgs.findIndex(i => i.is_primary))
-    setIdx(primary === -1 ? 0 : primary)
+    const primaryIndex = imgs.findIndex(i => i.is_primary)
+    setIdx(primaryIndex === -1 ? 0 : primaryIndex)
   }, [card])
 
   // esc closes lightbox
@@ -100,7 +106,10 @@ export default function ClientDetails({ id }: { id: string }) {
 
   if (!card) return <div className="py-16 text-center text-slate-500">Loading…</div>
 
-  const imgs = (Array.isArray(card.card_images) ? card.card_images : []) as { storage_path: string; is_primary?: boolean | null }[]
+  const imgs = (Array.isArray(card.card_images) ? card.card_images : []) as {
+    storage_path: string
+    is_primary?: boolean | null
+  }[]
   const urls = imgs.map(i => publicUrl(i.storage_path))
   const activeUrl = urls[idx]
 
@@ -111,7 +120,7 @@ export default function ClientDetails({ id }: { id: string }) {
       ? `${card.grading_company ?? ''} ${card.grade ?? ''}${card.grading_no ? ` (#${card.grading_no})` : ''}`.trim()
       : 'Raw'
 
-  // Save tags + notes
+  // --- SAVE TAGS + NOTES (with refresh signal for list page) ---
   async function saveTagsAndNotes() {
     if (!card) return
     setSaving(true)
@@ -120,7 +129,7 @@ export default function ClientDetails({ id }: { id: string }) {
 
       const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
 
-      // upsert → ids
+      // Upsert tags → get desired IDs
       let desiredTagIds: string[] = []
       if (clean.length) {
         const { data: up, error: upErr } = await supabase
@@ -131,7 +140,7 @@ export default function ClientDetails({ id }: { id: string }) {
         desiredTagIds = (up ?? []).map((t: any) => t.id as string)
       }
 
-      // diff links
+      // Diff links
       const toRemove = origTagIds.filter(id => !desiredTagIds.includes(id))
       const toAdd = desiredTagIds.filter(id => !origTagIds.includes(id))
 
@@ -150,7 +159,7 @@ export default function ClientDetails({ id }: { id: string }) {
         if (insErr) throw insErr
       }
 
-      // notes
+      // Update notes
       const nextNotes = notes.trim() ? notes.trim() : null
       const { error: nErr } = await supabase
         .from('cards')
@@ -158,6 +167,10 @@ export default function ClientDetails({ id }: { id: string }) {
         .eq('id', card.id)
       if (nErr) throw nErr
 
+      // ✅ tell the list page to refresh after back (covers iOS bfcache)
+      try { localStorage.setItem('cards_last_update', String(Date.now())) } catch {}
+
+      // Refresh local state so UI shows the saved data
       await fetchCardAndTags()
       setEditing(false)
     } catch (e: any) {
@@ -173,34 +186,48 @@ export default function ClientDetails({ id }: { id: string }) {
     setEditing(false)
   }
 
-  // ⬅️ Always navigate back with the current query encoded in the URL (more reliable on iOS)
   function goBack() {
-    const q = new URLSearchParams()
-    const s = sp.get('sport');  if (s) q.set('sport', s)
-    const p = sp.get('player'); if (p) q.set('player', p)
-    const y = sp.get('year');   if (y) q.set('year', y)
-    const t = sp.get('type');   if (t) q.set('type', t)
-    const tags = sp.getAll('tags'); if (tags.length) tags.forEach(tag => q.append('tags', tag))
-    const qs = q.toString()
-    router.push(qs ? `/?${qs}` : '/')
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back()
+    } else {
+      // fallback: preserve filters from current query if present
+      const q = new URLSearchParams()
+      const s = sp.get('sport');  if (s) q.set('sport', s)
+      const p = sp.get('player'); if (p) q.set('player', p)
+      const y = sp.get('year');   if (y) q.set('year', y)
+      const t = sp.get('type');   if (t) q.set('type', t)
+      const tags = sp.getAll('tags')
+      if (tags.length) tags.forEach(tag => q.append('tags', tag))
+      const qs = q.toString()
+      router.push(qs ? `/?${qs}` : '/')
+    }
   }
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-6">
       {/* Back */}
       <div className="mb-4">
-        <button onClick={goBack} className="text-sm text-indigo-600 hover:underline" title="Back">
-          ← Back
-        </button>
+        <button onClick={goBack} className="text-sm text-indigo-600 hover:underline">← Back</button>
       </div>
 
       {/* Hero */}
       {activeUrl ? (
         <>
           <div className="mx-auto w-[92%] sm:w-[88%] md:w-[85%]">
-            <div className="relative w-full overflow-hidden rounded-2xl border bg-white cursor-zoom-in" onClick={() => setOpen(true)} title="Tap to view larger">
+            <div
+              className="relative w-full overflow-hidden rounded-2xl border bg-white cursor-zoom-in"
+              onClick={() => setOpen(true)}
+              title="Tap to view larger"
+            >
               <div className="h-[48vh] sm:h-[52vh]">
-                <Image src={activeUrl} alt={title || 'card'} fill sizes="(max-width: 768px) 100vw, 800px" className="object-contain" priority />
+                <Image
+                  src={activeUrl}
+                  alt={title || 'card'}
+                  fill
+                  sizes="(max-width: 768px) 100vw, 800px"
+                  className="object-contain"
+                  priority
+                />
               </div>
             </div>
           </div>
@@ -300,11 +327,21 @@ export default function ClientDetails({ id }: { id: string }) {
 
       {/* Lightbox */}
       {open && activeUrl && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90" onClick={() => setOpen(false)}>
-          <div className="relative w-[min(95vw,1200px)] h-[min(90vh,1000px)]" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="relative w-[min(95vw,1200px)] h-[min(90vh,1000px)]"
+            onClick={(e) => e.stopPropagation()}
+          >
             <Image src={activeUrl} alt={title || 'card'} fill sizes="100vw" className="object-contain" />
           </div>
-          <button className="absolute top-4 right-4 rounded-full bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/20" onClick={() => setOpen(false)} title="Close">
+          <button
+            className="absolute top-4 right-4 rounded-full bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/20"
+            onClick={() => setOpen(false)}
+            title="Close"
+          >
             Close
           </button>
         </div>

@@ -2,9 +2,8 @@
 'use client'
 
 import { use, useEffect, useState } from 'react'
-import Link from 'next/link'
 import Image from 'next/image'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { publicUrl } from '@/lib/storage'
 import { ensureUser } from '@/lib/auth'
@@ -30,12 +29,12 @@ type Card = {
 export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
   const { id } = use(params)
   const router = useRouter()
+  const sp = useSearchParams()
 
   const [card, setCard] = useState<Card | null>(null)
   const [idx, setIdx] = useState(0)
   const [open, setOpen] = useState(false)
 
-  // tags + notes UI state
   const [tags, setTags] = useState<string[]>([])
   const [initialTags, setInitialTags] = useState<string[]>([])
   const [origTagIds, setOrigTagIds] = useState<string[]>([])
@@ -43,7 +42,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // --- helpers to (re)load the page data ---
   async function fetchCardAndTags() {
     const { data: c, error: cErr } = await supabase
       .from('cards')
@@ -76,28 +74,21 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
     setOrigTagIds(ids)
   }
 
-  // initial load
   useEffect(() => {
     let cancel = false
     ;(async () => {
-      try {
-        await fetchCardAndTags()
-      } catch (e: any) {
-        if (!cancel) alert(e.message ?? e)
-      }
+      try { await fetchCardAndTags() } catch (e: any) { if (!cancel) alert(e.message ?? e) }
     })()
     return () => { cancel = true }
   }, [id])
 
-  // pick the primary image by default
   useEffect(() => {
     if (!card) return
     const imgs = Array.isArray(card.card_images) ? card.card_images : []
-    const primary = Math.max(0, imgs.findIndex(i => i.is_primary)) // -1 → 0
+    const primary = Math.max(0, imgs.findIndex(i => i.is_primary))
     setIdx(primary === -1 ? 0 : primary)
   }, [card])
 
-  // esc closes lightbox
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false) }
     if (open) window.addEventListener('keydown', onKey)
@@ -120,17 +111,14 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
       ? `${card.grading_company ?? ''} ${card.grade ?? ''}${card.grading_no ? ` (#${card.grading_no})` : ''}`.trim()
       : 'Raw'
 
-  // --- SAVE TAGS + NOTES (with refresh) ---
   async function saveTagsAndNotes() {
     if (!card) return
     setSaving(true)
     try {
-      // ensure we have an authenticated session (needed for RLS writes)
       await ensureUser()
 
       const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
 
-      // Upsert tags → get desired IDs
       let desiredTagIds: string[] = []
       if (clean.length) {
         const { data: up, error: upErr } = await supabase
@@ -141,7 +129,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
         desiredTagIds = (up ?? []).map((t: any) => t.id as string)
       }
 
-      // Diff links
       const toRemove = origTagIds.filter(id => !desiredTagIds.includes(id))
       const toAdd = desiredTagIds.filter(id => !origTagIds.includes(id))
 
@@ -160,7 +147,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
         if (insErr) throw insErr
       }
 
-      // Update notes in DB
       const nextNotes = notes.trim() ? notes.trim() : null
       const { error: nErr } = await supabase
         .from('cards')
@@ -168,7 +154,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
         .eq('id', card.id)
       if (nErr) throw nErr
 
-      // Refresh local state
       await fetchCardAndTags()
       setEditing(false)
     } catch (e: any) {
@@ -184,23 +169,30 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
     setEditing(false)
   }
 
+  function goBack() {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back()
+    } else {
+      const q = new URLSearchParams()
+      const s = sp.get('sport');  if (s) q.set('sport', s)
+      const p = sp.get('player'); if (p) q.set('player', p)
+      const y = sp.get('year');   if (y) q.set('year', y)
+      const t = sp.get('type');   if (t) q.set('type', t)
+      const tags = sp.getAll('tags')
+      if (tags.length) tags.forEach(tag => q.append('tags', tag))
+      const qs = q.toString()
+      router.push(qs ? `/?${qs}` : '/')
+    }
+  }
+
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-6">
-      {/* Back (preserves filters by using history) */}
       <div className="mb-4">
-        <button
-          onClick={() => {
-            if (typeof window !== 'undefined' && window.history.length > 1) router.back()
-            else router.push('/')
-          }}
-          className="text-sm text-indigo-600 hover:underline"
-          title="Back"
-        >
+        <button onClick={goBack} className="text-sm text-indigo-600 hover:underline" title="Back">
           ← Back
         </button>
       </div>
 
-      {/* Hero (smaller, centered) */}
       {activeUrl ? (
         <>
           <div className="mx-auto w-[92%] sm:w-[88%] md:w-[85%]">
@@ -222,7 +214,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
             </div>
           </div>
 
-          {/* Thumbnails */}
           {urls.length > 1 && (
             <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
               {urls.map((u, i) => (
@@ -244,7 +235,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
         </>
       ) : null}
 
-      {/* Card panel */}
       <div className="mt-5 rounded-2xl border bg-white p-4 shadow-sm">
         <h1 className="text-2xl font-extrabold text-slate-900">{player}</h1>
         <p className="mt-1 text-slate-600">{title}</p>
@@ -254,7 +244,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
           <span className="pill whitespace-normal break-words">{graded}</span>
         </div>
 
-        {/* Tags & Notes */}
         <div className="mt-5 border-t pt-4">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-sm font-semibold text-slate-800">Tags & Notes</div>
@@ -315,7 +304,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
         </div>
       </div>
 
-      {/* Lightbox */}
       {open && activeUrl && (
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90"

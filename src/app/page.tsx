@@ -144,6 +144,29 @@ function Home() {
   }
   useEffect(() => { loadCards() }, [])
 
+  // 1) When the page is restored from the back/forward cache or you hit Back,
+  //    force a re-fetch so new tag links are reflected in the list/tag pills.
+  useEffect(() => {
+    function refetch() {
+      loadCards();          // <- you already have this function above
+    }
+    window.addEventListener('pageshow', refetch);  // fires on bfcache restore
+    window.addEventListener('popstate', refetch);  // fires on back/forward
+
+    return () => {
+      window.removeEventListener('pageshow', refetch);
+      window.removeEventListener('popstate', refetch);
+    };
+  }, []);
+
+  // 2) iOS sometimes restores an old scroll position even if the filtered list
+  //    is shorter, which leaves a huge blank space at the top. Nudge to top
+  //    whenever the search params change (i.e., after returning from details).
+  useEffect(() => {
+    // defer to after paint so we don’t fight layout
+    setTimeout(() => window.scrollTo(0, 0), 0);
+  }, [sp]); // `sp` is your useSearchParams() result
+
   // refresh when returning from details if something changed
   useEffect(() => {
     const checkUpdated = () => {

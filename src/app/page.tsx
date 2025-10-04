@@ -1,9 +1,9 @@
-// src/app/page.tsx
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { ensureUser } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 
@@ -45,10 +45,7 @@ function Pill({
     <button
       onClick={onClick}
       title={title}
-      className={[
-        'pill',
-        active ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : '',
-      ].join(' ')}
+      className={['pill', active ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : ''].join(' ')}
     >
       {children}
     </button>
@@ -73,36 +70,28 @@ const cmpCardNo = (a?: string | null, b?: string | null) => {
 
 function applyFilters(
   list: CardRow[],
-  opts: {
-    sport?: string
-    player?: string
-    year?: string
-    type?: TypeFilter
-    tags?: string[]
-  }
+  opts: { sport?: string; player?: string; year?: string; type?: TypeFilter; tags?: string[] }
 ) {
   const { sport, player, year, type, tags } = opts
   return list.filter((c) => {
     const sportOk = sport === undefined || !sport || c.sport === sport
-    const playerOk =
-      player === undefined || !player || c.player?.full_name === player
+    const playerOk = player === undefined || !player || c.player?.full_name === player
     const yearOk = year === undefined || !year || c.year === Number(year)
     const typeOk =
-      type === undefined ||
-      !type ||
-      (type === 'graded' ? c.is_graded === true : c.is_graded !== true)
+      type === undefined || !type || (type === 'graded' ? c.is_graded === true : c.is_graded !== true)
 
-    const labels = (c.card_tags ?? [])
-      .map((ct) => ct?.tags?.label)
-      .filter(Boolean) as string[]
-    const tagsOk =
-      tags === undefined || !tags?.length || tags.every((t) => labels.includes(t))
+    const labels = (c.card_tags ?? []).map((ct) => ct?.tags?.label).filter(Boolean) as string[]
+    const tagsOk = tags === undefined || !tags?.length || tags.every((t) => labels.includes(t))
 
     return sportOk && playerOk && yearOk && typeOk && tagsOk
   })
 }
 
 export default function HomePage() {
+  const router = useRouter()
+  const sp = useSearchParams()
+  const pathname = usePathname()
+
   const [cards, setCards] = useState<CardRow[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -113,6 +102,39 @@ export default function HomePage() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('') // '' | 'graded' | 'raw'
   const [tagFilter, setTagFilter] = useState<string[]>([])     // multi-select
   const [openFilter, setOpenFilter] = useState<FilterKey>(null)
+
+  // --- initialize filters from URL once ---
+  const initialized = useRef(false)
+  useEffect(() => {
+    if (initialized.current) return
+    initialized.current = true
+    const s = sp.get('sport') || ''
+    const p = sp.get('player') || ''
+    const y = sp.get('year') || ''
+    const t = (sp.get('type') as TypeFilter) || ''
+    const tags = sp.getAll('tags')
+    if (s) setSportFilter(s)
+    if (p) setPlayerFilter(p)
+    if (y) setYearFilter(y)
+    if (t === 'graded' || t === 'raw') setTypeFilter(t)
+    if (tags.length) setTagFilter(tags)
+  }, [sp])
+
+  // --- keep URL in sync with current filters (replace, no scroll) ---
+  const lastQs = useRef<string>('')
+  useEffect(() => {
+    const q = new URLSearchParams()
+    if (sportFilter) q.set('sport', sportFilter)
+    if (playerFilter) q.set('player', playerFilter)
+    if (yearFilter) q.set('year', yearFilter)
+    if (typeFilter) q.set('type', typeFilter)
+    if (tagFilter.length) tagFilter.forEach((t) => q.append('tags', t))
+    const qs = q.toString()
+    if (qs !== lastQs.current) {
+      lastQs.current = qs
+      router.replace(`${pathname}${qs ? `?${qs}` : ''}`, { scroll: false })
+    }
+  }, [sportFilter, playerFilter, yearFilter, typeFilter, tagFilter, pathname, router])
 
   // ---- load cards (reused on focus/visibility) ----
   async function loadCards() {
@@ -125,9 +147,7 @@ export default function HomePage() {
         is_graded, grading_company, grading_no, grade,
         player:players(full_name),
         card_images(storage_path, is_primary),
-        card_tags:card_tags(
-          tags(label)
-        )
+        card_tags:card_tags(tags(label))
       `)
       .order('created_at', { ascending: false })
     if (!error && data) setCards(data as unknown as CardRow[])
@@ -137,19 +157,13 @@ export default function HomePage() {
   // initial load
   useEffect(() => {
     let cancel = false
-    ;(async () => {
-      if (!cancel) await loadCards()
-    })()
+    ;(async () => { if (!cancel) await loadCards() })()
     return () => { cancel = true }
   }, [])
 
-  // refresh when we return from details (mobile/back-cache)
+  // refresh when we return from details
   useEffect(() => {
-    const onShow = () => {
-      if (document.visibilityState === 'visible') {
-        loadCards()
-      }
-    }
+    const onShow = () => { if (document.visibilityState === 'visible') loadCards() }
     window.addEventListener('focus', onShow)
     document.addEventListener('visibilitychange', onShow)
     return () => {
@@ -210,7 +224,7 @@ export default function HomePage() {
     return list
   }, [filtered])
 
-  // counts for popups
+  // counts
   const typeCounts = useMemo(() => {
     const base = applyFilters(cards, {
       sport: sportFilter, player: playerFilter, year: yearFilter,
@@ -266,9 +280,7 @@ export default function HomePage() {
     })
     const by: Record<string, number> = {}
     for (const c of base) {
-      const labels = (c.card_tags ?? [])
-        .map(ct => ct?.tags?.label)
-        .filter(Boolean) as string[]
+      const labels = (c.card_tags ?? []).map(ct => ct?.tags?.label).filter(Boolean) as string[]
       for (const l of labels) by[l] = (by[l] ?? 0) + 1
     }
     return { all: base.length, by }
@@ -277,26 +289,15 @@ export default function HomePage() {
   async function handleDelete(card: CardRow) {
     const label =
       `${card.player?.full_name || 'Unknown Player'} • ` +
-      (`${[
-        card.year && String(card.year),
-        card.brand,
-        card.card_no && `#${card.card_no}`,
-      ].filter(Boolean).join(' ')}` || '—')
+      (`${[card.year && String(card.year), card.brand, card.card_no && `#${card.card_no}`]
+        .filter(Boolean).join(' ')}` || '—')
 
     const ok = confirm(`Delete: ${label}?\n\nThis will remove the card and its photo(s).`)
     if (!ok) return
 
-    const { data: deleted, error } = await supabase
-      .from('cards')
-      .delete()
-      .eq('id', card.id)
-      .select('id')
-
+    const { data: deleted, error } = await supabase.from('cards').delete().eq('id', card.id).select('id')
     if (error) { alert(`Delete failed: ${error.message}`); return }
-    if (!deleted || deleted.length === 0) {
-      alert(`Could not delete “${label}”. You may not have permission.`)
-      return
-    }
+    if (!deleted || deleted.length === 0) { alert(`Could not delete “${label}”.`); return }
 
     const paths = (card.card_images ?? []).map(i => i.storage_path).filter(Boolean) as string[]
     if (paths.length) { try { await supabase.storage.from('card-images').remove(paths) } catch {} }
@@ -376,12 +377,8 @@ export default function HomePage() {
       </div>
 
       {/* Count */}
-      {!loading && (
-        <div className="text-xs text-slate-500">{sorted.length} card{sorted.length===1?'':'s'}</div>
-      )}
-      {loading && (
-        <div className="py-16 text-center text-slate-500">Loading…</div>
-      )}
+      {!loading && <div className="text-xs text-slate-500">{sorted.length} card{sorted.length===1?'':'s'}</div>}
+      {loading && <div className="py-16 text-center text-slate-500">Loading…</div>}
 
       {/* List */}
       <div className="space-y-2">
@@ -394,31 +391,32 @@ export default function HomePage() {
             ? `${c.grading_company ?? ''} ${c.grade ?? ''}${c.grading_no ? ` (#${c.grading_no})` : ''}`.trim()
             : 'Raw'
 
-          // (If you already added query-param preservation to Details links, keep it)
+          // pass current filters to details page via query params
+          const query: Record<string, string | string[]> = {}
+          if (sportFilter) query.sport = sportFilter
+          if (playerFilter) query.player = playerFilter
+          if (yearFilter) query.year = yearFilter
+          if (typeFilter) query.type = typeFilter
+          if (tagFilter.length) query.tags = tagFilter
+
           return (
             <div key={c.id} className="card p-2">
               <div className="flex items-center gap-2">
                 <div className="relative h-16 w-16 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                  {url && (
-                    <Image src={url} alt="" fill sizes="64px" className="object-contain" />
-                  )}
+                  {url && <Image src={url} alt="" fill sizes="64px" className="object-contain" />}
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold">
-                    {c.player?.full_name || 'Unknown Player'}
-                  </div>
+                  <div className="truncate text-sm font-semibold">{c.player?.full_name || 'Unknown Player'}</div>
                   <div className="truncate text-xs text-slate-600">{title}</div>
                   <div className="mt-1">
-                    <span className="pill px-2 py-0.5 text-[11px]">
-                      {chip || 'Raw'}
-                    </span>
+                    <span className="pill px-2 py-0.5 text-[11px]">{chip || 'Raw'}</span>
                   </div>
                 </div>
 
                 <div className="flex shrink-0 items-center gap-1.5">
                   <Link
-                    href={`/card/${c.id}`}
+                    href={{ pathname: `/card/${c.id}`, query }}
                     title="Details"
                     className="rounded-lg border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
                   >
@@ -461,10 +459,7 @@ export default function HomePage() {
 
             <div className="max-h-[50vh] overflow-auto space-y-2">
               <button
-                onClick={() => {
-                  if (openFilter === 'tags') setTagFilter([])
-                  else chooseFilter('')
-                }}
+                onClick={() => { openFilter === 'tags' ? setTagFilter([]) : chooseFilter('') }}
                 className={[
                   'w-full text-left rounded-lg border px-3 py-2',
                   (openFilter === 'tags'
@@ -477,7 +472,12 @@ export default function HomePage() {
                     : 'border-slate-200 hover:bg-slate-50'
                 ].join(' ')}
               >
-                {openFilter === 'tags' ? 'Any' : 'All'} ({allCountForOpen})
+                {openFilter === 'tags' ? 'Any' : 'All'} (
+                {openFilter === 'sport' ? sportCounts.all
+                  : openFilter === 'player' ? playerCounts.all
+                  : openFilter === 'year' ? yearCounts.all
+                  : openFilter === 'type' ? typeCounts.all
+                  : tagCounts.all})
               </button>
 
               {currentOptions.map((opt) => {
@@ -493,10 +493,7 @@ export default function HomePage() {
                 return (
                   <button
                     key={opt}
-                    onClick={() => {
-                      if (openFilter === 'tags') setTagFilter(prev => prev.includes(opt) ? prev.filter(t => t !== opt) : [...prev, opt])
-                      else chooseFilter(opt)
-                    }}
+                    onClick={() => { openFilter === 'tags' ? toggleTag(opt) : chooseFilter(opt) }}
                     className={[
                       'w-full text-left rounded-lg border px-3 py-2',
                       isActive ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 hover:bg-slate-50'
@@ -510,9 +507,7 @@ export default function HomePage() {
             </div>
 
             <div className="mt-3 flex justify-end gap-2">
-              {openFilter === 'tags' && (
-                <button className="btn btn-outline" onClick={() => setTagFilter([])}>Clear</button>
-              )}
+              {openFilter === 'tags' && <button className="btn btn-outline" onClick={clearTags}>Clear</button>}
               <button className="btn" onClick={closeDialog}>Close</button>
             </div>
           </div>

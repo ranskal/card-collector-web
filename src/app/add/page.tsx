@@ -1,3 +1,4 @@
+// src/app/add/page.tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -6,7 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { ensureUser } from '@/lib/auth'
 import { useRouter } from 'next/navigation'
 import CropperModal from '@/components/CropperModal'
-import TagInput from '@/components/TagInput' // ⬅️ uses the component you added
+import TagInput from '@/components/TagInput'
 
 type Player = { id: string; full_name: string }
 
@@ -15,6 +16,15 @@ const DEFAULT_BRANDS = ['Topps', 'Fleer', 'Donruss', 'Philadelphia'] as const
 const DEFAULT_COMPANIES = ['PSA', 'SGC', 'BVG', 'Beckett', 'SWG', 'CGC'] as const
 
 type LocalImg = { file: File; url: string; isPrimary: boolean }
+
+function mergeOptions(prev: string[], extras: (string | null)[]) {
+  const merged = new Set<string>(prev)
+  for (const v of extras) {
+    const s = (v ?? '').trim()
+    if (s) merged.add(s)
+  }
+  return Array.from(merged).sort((a, b) => a.localeCompare(b))
+}
 
 export default function AddPage() {
   const router = useRouter()
@@ -27,8 +37,8 @@ export default function AddPage() {
   // sport / brand
   const [sports, setSports] = useState<string[]>([...DEFAULT_SPORTS])
   const [brands, setBrands] = useState<string[]>([...DEFAULT_BRANDS])
-  const [sportChoice, setSportChoice] = useState<string>(sports[0])
-  const [brandChoice, setBrandChoice] = useState<string>(brands[0])
+  const [sportChoice, setSportChoice] = useState<string>(DEFAULT_SPORTS[0])
+  const [brandChoice, setBrandChoice] = useState<string>(DEFAULT_BRANDS[0])
   const [customSport, setCustomSport] = useState('')
   const [customBrand, setCustomBrand] = useState('')
 
@@ -51,23 +61,41 @@ export default function AddPage() {
   // images (cropped files + previews)
   const [images, setImages] = useState<LocalImg[]>([])
 
-  // ---- cropping queue state ----
+  // cropping queue
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [cropQueue, setCropQueue] = useState<File[]>([])
   const [activeFile, setActiveFile] = useState<File | null>(null)
   const [tmpCardId] = useState(() => String(Date.now()))
 
-  // load players
+  // load players + merge option lists from existing cards
   useEffect(() => {
     ;(async () => {
       const u = await ensureUser()
       console.log('[add] user id:', u.id)
-      const { data } = await supabase
+
+      // players
+      const { data: playersData } = await supabase
         .from('players')
         .select('id, full_name')
         .order('full_name', { ascending: true })
-      setPlayers(data ?? [])
-      if (data && data.length) setPlayerChoice(data[0].id)
+      setPlayers(playersData ?? [])
+      if (playersData && playersData.length) setPlayerChoice(playersData[0].id)
+
+      // pull distinct-ish values from existing cards and merge with defaults
+      const { data: cardRows } = await supabase
+        .from('cards')
+        .select('sport, brand, grading_company')
+        .limit(2000)
+
+      if (cardRows && cardRows.length) {
+        const dbSports = cardRows.map(r => r.sport ?? null)
+        const dbBrands = cardRows.map(r => r.brand ?? null)
+        const dbCompanies = cardRows.map(r => r.grading_company ?? null)
+
+        setSports(prev => mergeOptions(prev, dbSports))
+        setBrands(prev => mergeOptions(prev, dbBrands))
+        setCompanies(prev => mergeOptions(prev, dbCompanies))
+      }
     })()
   }, [])
 
@@ -76,25 +104,25 @@ export default function AddPage() {
   const showNewBrand = brandChoice === '__OTHER_BRAND__'
   const showNewCompany = isGraded && companyChoice === '__OTHER_COMPANY__'
 
-  // add custom values inline
+  // add custom values inline (also immediately selectable)
   function addSport() {
     const s = customSport.trim()
     if (!s) return
-    if (!sports.includes(s)) setSports(prev => [...prev, s])
+    setSports(prev => mergeOptions(prev, [s]))
     setSportChoice(s)
     setCustomSport('')
   }
   function addBrand() {
     const b = customBrand.trim()
     if (!b) return
-    if (!brands.includes(b)) setBrands(prev => [...prev, b])
+    setBrands(prev => mergeOptions(prev, [b]))
     setBrandChoice(b)
     setCustomBrand('')
   }
   function addCompany() {
     const c = customCompany.trim()
     if (!c) return
-    if (!companies.includes(c)) setCompanies(prev => [...prev, c])
+    setCompanies(prev => mergeOptions(prev, [c]))
     setCompanyChoice(c)
     setCustomCompany('')
   }
@@ -176,13 +204,13 @@ export default function AddPage() {
           grading_company: gradingCompany,
           grading_no: isGraded ? (gradingNo || null) : null,
           grade: isGraded && grade ? Number(grade) : null,
-          notes: notes.trim() ? notes.trim() : null,    // ⬅️ requires cards.notes column
+          notes: notes.trim() ? notes.trim() : null,
         })
         .select()
         .single()
       if (cErr || !card) throw cErr ?? new Error('Failed to insert card')
 
-      // upsert tags and link to card (requires unique index on tags.label)
+      // upsert tags and link to card
       if (tags.length) {
         const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
         if (clean.length) {
@@ -218,8 +246,8 @@ export default function AddPage() {
         if (imgErr) throw imgErr
       }
 
-    // iOS: avoid lingering focus (which causes auto-zoom) before we navigate
-    (document.activeElement as HTMLElement | null)?.blur?.();
+      // iOS: avoid lingering focus (auto-zoom) before we navigate
+      (document.activeElement as HTMLElement | null)?.blur?.()
 
       alert('Saved!')
       router.push('/')

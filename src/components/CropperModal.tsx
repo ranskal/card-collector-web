@@ -1,16 +1,13 @@
+// src/components/CropperModal.tsx
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import Cropper, { Area } from 'react-easy-crop'
 
 type Props = {
-  /** Image file to crop */
   file: File
-  /** Aspect ratio (e.g. 2/3 for trading cards) */
   aspect?: number
-  /** Called when user cancels the crop */
   onCancel: () => void
-  /** Called with the cropped Blob when user confirms */
   onDone: (blob: Blob) => void | Promise<void>
 }
 
@@ -20,14 +17,15 @@ export default function CropperModal({
   onCancel,
   onDone,
 }: Props) {
-  // preview URL for the incoming file
   const url = useMemo(() => URL.createObjectURL(file), [file])
-  useEffect(() => {
-    return () => URL.revokeObjectURL(url)
-  }, [url])
+  useEffect(() => () => URL.revokeObjectURL(url), [url])
+
+  // allow zooming smaller than "fit" (1.0)
+  const MIN_ZOOM = 0.35
+  const MAX_ZOOM = 5
 
   const [crop, setCrop] = useState({ x: 0, y: 0 })
-  const [zoom, setZoom] = useState(1)
+  const [zoom, setZoom] = useState(0.9) // start slightly smaller than full fit
   const [area, setArea] = useState<Area | null>(null)
 
   function onCropComplete(_: Area, croppedAreaPixels: Area) {
@@ -40,6 +38,12 @@ export default function CropperModal({
     await onDone(blob)
   }
 
+  function handleFit() {
+    // center the image and reset zoom to a "fit" view
+    setCrop({ x: 0, y: 0 })
+    setZoom(1)
+  }
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60">
       <div className="w-full max-w-[520px] rounded-2xl bg-white shadow-xl overflow-hidden">
@@ -48,6 +52,8 @@ export default function CropperModal({
             image={url}
             crop={crop}
             zoom={zoom}
+            minZoom={MIN_ZOOM}
+            maxZoom={MAX_ZOOM}
             aspect={aspect}
             onCropChange={setCrop}
             onZoomChange={setZoom}
@@ -59,17 +65,27 @@ export default function CropperModal({
           />
         </div>
 
-        <div className="flex items-center gap-4 p-4">
+        <div className="flex items-center gap-3 p-4">
           <input
             type="range"
-            min={1}
-            max={4}
+            min={MIN_ZOOM}
+            max={MAX_ZOOM}
             step={0.01}
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
             className="flex-1"
             aria-label="Zoom"
           />
+          <span className="text-xs text-slate-600 w-10 text-right">
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            onClick={handleFit}
+            className="rounded border px-3 py-1 text-gray-700"
+            title="Fit to view"
+          >
+            Fit
+          </button>
           <button
             onClick={onCancel}
             className="rounded border px-3 py-1 text-gray-700"

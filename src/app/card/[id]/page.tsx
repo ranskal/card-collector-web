@@ -1,8 +1,10 @@
+// src/app/card/[id]/page.tsx
 'use client'
 
 import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { publicUrl } from '@/lib/storage'
 import TagInput from '@/components/TagInput'
@@ -26,6 +28,11 @@ type Card = {
 
 export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
   const { id } = use(params)
+
+  // read any filters passed from the list so Back returns to the same view
+  const searchParams = useSearchParams()
+  const backQS = searchParams.toString()
+  const backHref = backQS ? `/?${backQS}` : '/'
 
   const [card, setCard] = useState<Card | null>(null)
   const [idx, setIdx] = useState(0)
@@ -67,7 +74,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
     const labels = (tagRows ?? [])
       .map((r: any) => r.tags?.label as string | undefined)
       .filter(Boolean) as string[]
-
     const ids = (tagRows ?? []).map((r: any) => r.tag_id as string)
 
     setTags(labels)
@@ -166,7 +172,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
 
       // Refresh local state from the server so the UI shows the saved data
       await fetchCardAndTags()
-
       setEditing(false)
     } catch (e: any) {
       alert(`Save failed: ${e.message ?? e}`)
@@ -183,9 +188,9 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-6">
-      {/* Back */}
+      {/* Back (preserves filters via query string) */}
       <div className="mb-4">
-        <Link href="/" className="text-sm text-indigo-600 hover:underline">← Back</Link>
+        <Link href={backHref} className="text-sm text-indigo-600 hover:underline">← Back</Link>
       </div>
 
       {/* Hero (smaller, centered) */}

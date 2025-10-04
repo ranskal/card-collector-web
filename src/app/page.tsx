@@ -6,6 +6,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { ensureUser } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 type CardRow = {
   id: string
@@ -55,7 +56,7 @@ function Pill({
   )
 }
 
-// sorting helpers (no Sort UI shown)
+// --- sorting helpers (internal only, no UI) ---
 const s = (v: unknown) => (v ?? '').toString()
 const cmpStr = (a?: string | null, b?: string | null) =>
   s(a).localeCompare(s(b), undefined, { sensitivity: 'base', numeric: true })
@@ -71,7 +72,7 @@ const cmpCardNo = (a?: string | null, b?: string | null) => {
   return cmpStr(a, b)
 }
 
-/** Apply filters; any key omitted/undefined is ignored (for cross-dimension counts). */
+/** Apply filters; any key omitted/undefined is ignored */
 function applyFilters(
   list: CardRow[],
   opts: {
@@ -79,44 +80,49 @@ function applyFilters(
     player?: string
     year?: string
     type?: TypeFilter
-    tags?: string[] // AND match
+    tags?: string[] // AND match: card must include all selected tags
   }
 ) {
   const { sport, player, year, type, tags } = opts
   return list.filter((c) => {
     const sportOk = sport === undefined || !sport || c.sport === sport
-    const playerOk = player === undefined || !player || c.player?.full_name === player
+    const playerOk =
+      player === undefined || !player || c.player?.full_name === player
     const yearOk = year === undefined || !year || c.year === Number(year)
     const typeOk =
       type === undefined ||
       !type ||
       (type === 'graded' ? c.is_graded === true : c.is_graded !== true)
 
-    const labels = (c.card_tags ?? [])
-      .map((ct) => ct?.tags?.label)
-      .filter(Boolean) as string[]
+    const labels =
+      (c.card_tags ?? [])
+        .map((ct) => ct?.tags?.label)
+        .filter(Boolean) as string[]
     const tagsOk =
-      tags === undefined ||
-      !tags?.length ||
-      tags.every((t) => labels.includes(t))
+      tags === undefined || !tags?.length || tags.every((t) => labels.includes(t))
 
     return sportOk && playerOk && yearOk && typeOk && tagsOk
   })
 }
 
 export default function HomePage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
   const [cards, setCards] = useState<CardRow[]>([])
   const [loading, setLoading] = useState(true)
 
-  // filters (no Sort UI)
+  // filters
   const [sportFilter, setSportFilter] = useState<string>('')   // '' = All
   const [playerFilter, setPlayerFilter] = useState<string>('') // '' = All
   const [yearFilter, setYearFilter] = useState<string>('')     // '' = All
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('') // '' | 'graded' | 'raw'
   const [tagFilter, setTagFilter] = useState<string[]>([])     // multi-select
 
+  // pop-up state
   const [openFilter, setOpenFilter] = useState<FilterKey>(null)
 
+  // ---- Load data
   useEffect(() => {
     let active = true
     ;(async () => {
@@ -128,7 +134,9 @@ export default function HomePage() {
           is_graded, grading_company, grading_no, grade,
           player:players(full_name),
           card_images(storage_path, is_primary),
-          card_tags:card_tags(tags(label))
+          card_tags:card_tags(
+            tags(label)
+          )
         `)
         .order('created_at', { ascending: false })
 
@@ -139,7 +147,39 @@ export default function HomePage() {
     return () => { active = false }
   }, [])
 
-  // Options
+  // ---- Sync filters FROM URL on first render
+  useEffect(() => {
+    // only on first client render (values default to '')
+    const sp = searchParams
+    if (!sp) return
+    const sport = sp.get('sport') || ''
+    const player = sp.get('player') || ''
+    const year = sp.get('year') || ''
+    const type = (sp.get('type') || '') as TypeFilter
+    const tagsQS = sp.get('tags') || ''
+    const tags = tagsQS ? tagsQS.split(',').filter(Boolean) : []
+
+    setSportFilter(sport)
+    setPlayerFilter(player)
+    setYearFilter(year)
+    setTypeFilter(type === 'graded' || type === 'raw' ? type : '')
+    setTagFilter(tags)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // run once
+
+  // ---- Sync filters TO URL whenever they change (shallow replace, no scroll)
+  useEffect(() => {
+    const qs = new URLSearchParams()
+    if (sportFilter) qs.set('sport', sportFilter)
+    if (playerFilter) qs.set('player', playerFilter)
+    if (yearFilter) qs.set('year', yearFilter)
+    if (typeFilter) qs.set('type', typeFilter)
+    if (tagFilter.length) qs.set('tags', tagFilter.join(','))
+    const search = qs.toString()
+    router.replace(search ? `/?${search}` : '/', { scroll: false })
+  }, [sportFilter, playerFilter, yearFilter, typeFilter, tagFilter, router])
+
+  // Option lists
   const sportOptions = useMemo(() => {
     const set = new Set<string>()
     cards.forEach(c => { if (c.sport) set.add(c.sport) })
@@ -169,7 +209,7 @@ export default function HomePage() {
     return Array.from(set).sort((a,b)=>a.localeCompare(b))
   }, [cards])
 
-  // Filtered + default combined sort
+  // Filtered + default combined sort (Player → Year → Brand → Number)
   const filtered = useMemo(() => {
     return applyFilters(cards, {
       sport: sportFilter,
@@ -191,23 +231,32 @@ export default function HomePage() {
     return list
   }, [filtered])
 
-  // Counts for popups
+  // ---- Counts for popups
   const typeCounts = useMemo(() => {
-    const base = applyFilters(cards, { sport: sportFilter, player: playerFilter, year: yearFilter, type: undefined, tags: tagFilter })
+    const base = applyFilters(cards, {
+      sport: sportFilter, player: playerFilter, year: yearFilter,
+      type: undefined, tags: tagFilter
+    })
     const graded = base.filter(c => c.is_graded === true).length
     const all = base.length
     return { all, graded, raw: all - graded }
   }, [cards, sportFilter, playerFilter, yearFilter, tagFilter])
 
   const sportCounts = useMemo(() => {
-    const base = applyFilters(cards, { player: playerFilter, year: yearFilter, type: typeFilter, sport: undefined, tags: tagFilter })
+    const base = applyFilters(cards, {
+      player: playerFilter, year: yearFilter, type: typeFilter,
+      sport: undefined, tags: tagFilter
+    })
     const by: Record<string, number> = {}
     for (const c of base) if (c.sport) by[c.sport] = (by[c.sport] ?? 0) + 1
     return { all: base.length, by }
   }, [cards, playerFilter, yearFilter, typeFilter, tagFilter])
 
   const playerCounts = useMemo(() => {
-    const base = applyFilters(cards, { sport: sportFilter, year: yearFilter, type: typeFilter, player: undefined, tags: tagFilter })
+    const base = applyFilters(cards, {
+      sport: sportFilter, year: yearFilter, type: typeFilter,
+      player: undefined, tags: tagFilter
+    })
     const by: Record<string, number> = {}
     for (const c of base) {
       const name = c.player?.full_name
@@ -217,7 +266,10 @@ export default function HomePage() {
   }, [cards, sportFilter, yearFilter, typeFilter, tagFilter])
 
   const yearCounts = useMemo(() => {
-    const base = applyFilters(cards, { sport: sportFilter, player: playerFilter, type: typeFilter, year: undefined, tags: tagFilter })
+    const base = applyFilters(cards, {
+      sport: sportFilter, player: playerFilter, type: typeFilter,
+      year: undefined, tags: tagFilter
+    })
     const by: Record<string, number> = {}
     for (const c of base) {
       if (typeof c.year === 'number') {
@@ -229,10 +281,15 @@ export default function HomePage() {
   }, [cards, sportFilter, playerFilter, typeFilter, tagFilter])
 
   const tagCounts = useMemo(() => {
-    const base = applyFilters(cards, { sport: sportFilter, player: playerFilter, year: yearFilter, type: typeFilter, tags: undefined })
+    const base = applyFilters(cards, {
+      sport: sportFilter, player: playerFilter, year: yearFilter,
+      type: typeFilter, tags: undefined
+    })
     const by: Record<string, number> = {}
     for (const c of base) {
-      const labels = (c.card_tags ?? []).map(ct => ct?.tags?.label).filter(Boolean) as string[]
+      const labels = (c.card_tags ?? [])
+        .map(ct => ct?.tags?.label)
+        .filter(Boolean) as string[]
       for (const l of labels) by[l] = (by[l] ?? 0) + 1
     }
     return { all: base.length, by }
@@ -246,7 +303,9 @@ export default function HomePage() {
         card.year && String(card.year),
         card.brand,
         card.card_no && `#${card.card_no}`,
-      ].filter(Boolean).join(' ')}` || '—')
+      ]
+        .filter(Boolean)
+        .join(' ')}` || '—')
 
     const ok = confirm(`Delete: ${label}?\n\nThis will remove the card and its photo(s).`)
     if (!ok) return
@@ -257,22 +316,29 @@ export default function HomePage() {
       .eq('id', card.id)
       .select('id')
 
-    if (error) { alert(`Delete failed: ${error.message}`); return }
+    if (error) {
+      alert(`Delete failed: ${error.message}`)
+      return
+    }
     if (!deleted || deleted.length === 0) {
       alert(`Could not delete “${label}”. You may not have permission (different session/user).`)
       return
     }
 
     const paths = (card.card_images ?? []).map(i => i.storage_path).filter(Boolean) as string[]
-    if (paths.length) { try { await supabase.storage.from('card-images').remove(paths) } catch {} }
+    if (paths.length) {
+      try { await supabase.storage.from('card-images').remove(paths) } catch {}
+    }
     setCards(prev => prev.filter(c => c.id !== card.id))
   }
 
-  // pill labels
+  // Labels
   const sportLabel  = sportFilter  ? `Sport: ${sportFilter}`   : 'Sport: All'
   const playerLabel = playerFilter ? `Player: ${playerFilter}` : 'Player: All'
   const yearLabel   = yearFilter   ? `Year: ${yearFilter}`     : 'Year: All'
-  const typeLabel   = typeFilter   ? `Type: ${typeFilter === 'graded' ? 'Graded' : 'Raw'}` : 'Type: All'
+  const typeLabel   = typeFilter
+    ? `Type: ${typeFilter === 'graded' ? 'Graded' : 'Raw'}`
+    : 'Type: All'
   const tagsLabel   = tagFilter.length ? `Tags: ${tagFilter.length} selected` : 'Tags: Any'
 
   function openFilterDialog(key: Exclude<FilterKey, null>) { setOpenFilter(key) }
@@ -318,17 +384,17 @@ export default function HomePage() {
     openFilter === 'tags'   ? tagCounts.all :
     0
 
-  // Build query string from current filters to pass to Details links
-  function filtersToQuery() {
+  // Build current query string once for Details links
+  const detailsQS = useMemo(() => {
     const qs = new URLSearchParams()
     if (sportFilter) qs.set('sport', sportFilter)
     if (playerFilter) qs.set('player', playerFilter)
     if (yearFilter) qs.set('year', yearFilter)
     if (typeFilter) qs.set('type', typeFilter)
     if (tagFilter.length) qs.set('tags', tagFilter.join(','))
-    const str = qs.toString()
-    return str ? `?${str}` : ''
-  }
+    const s = qs.toString()
+    return s ? `?${s}` : ''
+  }, [sportFilter, playerFilter, yearFilter, typeFilter, tagFilter])
 
   return (
     <div className="space-y-4">
@@ -371,8 +437,6 @@ export default function HomePage() {
             ? `${c.grading_company ?? ''} ${c.grade ?? ''}${c.grading_no ? ` (#${c.grading_no})` : ''}`.trim()
             : 'Raw'
 
-          const qs = filtersToQuery()
-
           return (
             <div key={c.id} className="card p-2">
               <div className="flex items-center gap-2">
@@ -402,7 +466,7 @@ export default function HomePage() {
 
                 <div className="flex shrink-0 items-center gap-1.5">
                   <Link
-                    href={`/card/${c.id}${qs}`}
+                    href={`/card/${c.id}${detailsQS}`}
                     title="Details"
                     className="rounded-lg border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50"
                   >
@@ -431,10 +495,13 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* Filter pop-up */}
+      {/* --- Filter pop-up --- */}
       {openFilter && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={closeDialog}>
-          <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="mb-3 text-sm font-semibold text-slate-800">
               {openFilter === 'sport' ? 'Select Sport'
                : openFilter === 'player' ? 'Select Player'
@@ -444,6 +511,7 @@ export default function HomePage() {
             </div>
 
             <div className="max-h-[50vh] overflow-auto space-y-2">
+              {/* All / Any option with count */}
               <button
                 onClick={() => {
                   if (openFilter === 'tags') setTagFilter([])
@@ -464,23 +532,38 @@ export default function HomePage() {
                 {openFilter === 'tags' ? 'Any' : 'All'} ({allCountForOpen})
               </button>
 
+              {/* Options with counts */}
               {currentOptions.map((opt) => {
                 let count = 0
-                if (openFilter === 'type') count = opt === 'Graded' ? typeCounts.graded : typeCounts.raw
-                else if (openFilter === 'sport') count = sportCounts.by[opt] ?? 0
-                else if (openFilter === 'player') count = playerCounts.by[opt] ?? 0
-                else if (openFilter === 'year') count = yearCounts.by[opt] ?? 0
-                else if (openFilter === 'tags') count = tagCounts.by[opt] ?? 0
+                if (openFilter === 'type') {
+                  count = opt === 'Graded' ? typeCounts.graded : typeCounts.raw
+                } else if (openFilter === 'sport') {
+                  count = sportCounts.by[opt] ?? 0
+                } else if (openFilter === 'player') {
+                  count = playerCounts.by[opt] ?? 0
+                } else if (openFilter === 'year') {
+                  count = yearCounts.by[opt] ?? 0
+                } else if (openFilter === 'tags') {
+                  count = tagCounts.by[opt] ?? 0
+                }
 
-                const isActive = openFilter === 'tags' ? tagFilter.includes(opt) : currentValue === opt
+                const isActive =
+                  openFilter === 'tags'
+                    ? tagFilter.includes(opt)
+                    : currentValue === opt
 
                 return (
                   <button
                     key={opt}
-                    onClick={() => { if (openFilter === 'tags') toggleTag(opt); else chooseFilter(opt) }}
+                    onClick={() => {
+                      if (openFilter === 'tags') toggleTag(opt)
+                      else chooseFilter(opt)
+                    }}
                     className={[
                       'w-full text-left rounded-lg border px-3 py-2',
-                      isActive ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 hover:bg-slate-50'
+                      isActive
+                        ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-200 hover:bg-slate-50'
                     ].join(' ')}
                   >
                     {openFilter === 'tags' && (isActive ? '✓ ' : '')}
@@ -491,7 +574,9 @@ export default function HomePage() {
             </div>
 
             <div className="mt-3 flex justify-end gap-2">
-              {openFilter === 'tags' && <button className="btn btn-outline" onClick={() => setTagFilter([])}>Clear</button>}
+              {openFilter === 'tags' && (
+                <button className="btn btn-outline" onClick={() => setTagFilter([])}>Clear</button>
+              )}
               <button className="btn" onClick={closeDialog}>Close</button>
             </div>
           </div>

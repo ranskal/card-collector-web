@@ -39,19 +39,8 @@ export default function ClientDetails({ id }: { id: string }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // global suggestions (all tags)
-  const [allTags, setAllTags] = useState<string[]>([])
-
-  // load suggestions
-  async function loadAllTags() {
-    const { data, error } = await supabase.from('tags').select('label').order('label')
-    if (!error && data) {
-      setAllTags((data as any[]).map(r => r.label).filter(Boolean))
-    }
-  }
-
-  // (re)load the page data
   async function fetchCardAndTags() {
+    // card
     const { data: c, error: cErr } = await supabase
       .from('cards')
       .select(`
@@ -67,6 +56,7 @@ export default function ClientDetails({ id }: { id: string }) {
     setCard(cardRow)
     setNotes(cardRow?.notes ?? '')
 
+    // tags
     const { data: tagRows, error: tErr } = await supabase
       .from('card_tags')
       .select('tag_id, tags(label)')
@@ -76,6 +66,7 @@ export default function ClientDetails({ id }: { id: string }) {
     const labels = (tagRows ?? [])
       .map((r: any) => r.tags?.label as string | undefined)
       .filter(Boolean) as string[]
+
     const ids = (tagRows ?? []).map((r: any) => r.tag_id as string)
 
     setTags(labels)
@@ -83,18 +74,16 @@ export default function ClientDetails({ id }: { id: string }) {
     setOrigTagIds(ids)
   }
 
+  // initial load
   useEffect(() => {
     let cancel = false
     ;(async () => {
-      try {
-        await Promise.all([fetchCardAndTags(), loadAllTags()])
-      } catch (e: any) {
-        if (!cancel) alert(e.message ?? e)
-      }
+      try { await fetchCardAndTags() } catch (e: any) { if (!cancel) alert(e.message ?? e) }
     })()
     return () => { cancel = true }
   }, [id])
 
+  // primary image index
   useEffect(() => {
     if (!card) return
     const imgs = Array.isArray(card.card_images) ? card.card_images : []
@@ -102,6 +91,7 @@ export default function ClientDetails({ id }: { id: string }) {
     setIdx(primary === -1 ? 0 : primary)
   }, [card])
 
+  // esc closes lightbox
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false) }
     if (open) window.addEventListener('keydown', onKey)
@@ -110,10 +100,7 @@ export default function ClientDetails({ id }: { id: string }) {
 
   if (!card) return <div className="py-16 text-center text-slate-500">Loading…</div>
 
-  const imgs = (Array.isArray(card.card_images) ? card.card_images : []) as {
-    storage_path: string
-    is_primary?: boolean | null
-  }[]
+  const imgs = (Array.isArray(card.card_images) ? card.card_images : []) as { storage_path: string; is_primary?: boolean | null }[]
   const urls = imgs.map(i => publicUrl(i.storage_path))
   const activeUrl = urls[idx]
 
@@ -124,20 +111,16 @@ export default function ClientDetails({ id }: { id: string }) {
       ? `${card.grading_company ?? ''} ${card.grade ?? ''}${card.grading_no ? ` (#${card.grading_no})` : ''}`.trim()
       : 'Raw'
 
-  // SAVE TAGS + NOTES
+  // Save tags + notes
   async function saveTagsAndNotes() {
     if (!card) return
     setSaving(true)
     try {
       await ensureUser()
 
-      // Force-commit any pending tag text
-      ;(document.activeElement as HTMLElement | null)?.blur?.()
-      await new Promise((r) => setTimeout(r, 0))
-
       const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
 
-      // Upsert tags → get IDs
+      // upsert → ids
       let desiredTagIds: string[] = []
       if (clean.length) {
         const { data: up, error: upErr } = await supabase
@@ -146,12 +129,9 @@ export default function ClientDetails({ id }: { id: string }) {
           .select()
         if (upErr) throw upErr
         desiredTagIds = (up ?? []).map((t: any) => t.id as string)
-
-        // ensure suggestions include new tags immediately
-        setAllTags(prev => Array.from(new Set([...prev, ...clean])))
       }
 
-      // Diff links
+      // diff links
       const toRemove = origTagIds.filter(id => !desiredTagIds.includes(id))
       const toAdd = desiredTagIds.filter(id => !origTagIds.includes(id))
 
@@ -170,7 +150,7 @@ export default function ClientDetails({ id }: { id: string }) {
         if (insErr) throw insErr
       }
 
-      // Update notes
+      // notes
       const nextNotes = notes.trim() ? notes.trim() : null
       const { error: nErr } = await supabase
         .from('cards')
@@ -193,19 +173,16 @@ export default function ClientDetails({ id }: { id: string }) {
     setEditing(false)
   }
 
+  // ⬅️ Always navigate back with the current query encoded in the URL (more reliable on iOS)
   function goBack() {
-    if (typeof window !== 'undefined' && window.history.length > 1) {
-      router.back()
-    } else {
-      const q = new URLSearchParams()
-      const s = sp.get('sport');  if (s) q.set('sport', s)
-      const p = sp.get('player'); if (p) q.set('player', p)
-      const y = sp.get('year');   if (y) q.set('year', y)
-      const t = sp.get('type');   if (t) q.set('type', t)
-      const tags = sp.getAll('tags'); if (tags.length) tags.forEach(tag => q.append('tags', tag))
-      const qs = q.toString()
-      router.push(qs ? `/?${qs}` : '/')
-    }
+    const q = new URLSearchParams()
+    const s = sp.get('sport');  if (s) q.set('sport', s)
+    const p = sp.get('player'); if (p) q.set('player', p)
+    const y = sp.get('year');   if (y) q.set('year', y)
+    const t = sp.get('type');   if (t) q.set('type', t)
+    const tags = sp.getAll('tags'); if (tags.length) tags.forEach(tag => q.append('tags', tag))
+    const qs = q.toString()
+    router.push(qs ? `/?${qs}` : '/')
   }
 
   return (
@@ -221,20 +198,9 @@ export default function ClientDetails({ id }: { id: string }) {
       {activeUrl ? (
         <>
           <div className="mx-auto w-[92%] sm:w-[88%] md:w-[85%]">
-            <div
-              className="relative w-full overflow-hidden rounded-2xl border bg-white cursor-zoom-in"
-              onClick={() => setOpen(true)}
-              title="Tap to view larger"
-            >
+            <div className="relative w-full overflow-hidden rounded-2xl border bg-white cursor-zoom-in" onClick={() => setOpen(true)} title="Tap to view larger">
               <div className="h-[48vh] sm:h-[52vh]">
-                <Image
-                  src={activeUrl}
-                  alt={title || 'card'}
-                  fill
-                  sizes="(max-width: 768px) 100vw, 800px"
-                  className="object-contain"
-                  priority
-                />
+                <Image src={activeUrl} alt={title || 'card'} fill sizes="(max-width: 768px) 100vw, 800px" className="object-contain" priority />
               </div>
             </div>
           </div>
@@ -318,7 +284,7 @@ export default function ClientDetails({ id }: { id: string }) {
                 value={tags}
                 onChange={setTags}
                 placeholder="Add a tag and press Enter (e.g., RC, Auto)"
-                suggestions={allTags}
+                suggestions={['RC','Auto','Refractor','Numbered','Patch','HOF']}
               />
               <textarea
                 className="mt-3 w-full rounded border px-2 py-1 text-sm"
@@ -338,11 +304,7 @@ export default function ClientDetails({ id }: { id: string }) {
           <div className="relative w-[min(95vw,1200px)] h-[min(90vh,1000px)]" onClick={(e) => e.stopPropagation()}>
             <Image src={activeUrl} alt={title || 'card'} fill sizes="100vw" className="object-contain" />
           </div>
-          <button
-            className="absolute top-4 right-4 rounded-full bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/20"
-            onClick={() => setOpen(false)}
-            title="Close"
-          >
+          <button className="absolute top-4 right-4 rounded-full bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/20" onClick={() => setOpen(false)} title="Close">
             Close
           </button>
         </div>

@@ -1,12 +1,14 @@
+// src/app/card/[id]/page.tsx
 'use client'
 
-import { use, useEffect, useMemo, useState } from 'react'
+import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { publicUrl } from '@/lib/storage'
+import { ensureUser } from '@/lib/auth'
 import TagInput from '@/components/TagInput'
-import { useSearchParams } from 'next/navigation'
 
 type ParamsP = { id: string }
 
@@ -27,7 +29,7 @@ type Card = {
 
 export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
   const { id } = use(params)
-  const searchParams = useSearchParams()
+  const router = useRouter()
 
   const [card, setCard] = useState<Card | null>(null)
   const [idx, setIdx] = useState(0)
@@ -41,15 +43,8 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // Build Back href that preserves filters
-  const backHref = useMemo(() => {
-    const qs = searchParams?.toString() || ''
-    return qs ? `/?${qs}` : '/'
-  }, [searchParams])
-
   // --- helpers to (re)load the page data ---
   async function fetchCardAndTags() {
-    // card
     const { data: c, error: cErr } = await supabase
       .from('cards')
       .select(`
@@ -65,7 +60,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
     setCard(cardRow)
     setNotes(cardRow?.notes ?? '')
 
-    // tags
     const { data: tagRows, error: tErr } = await supabase
       .from('card_tags')
       .select('tag_id, tags(label)')
@@ -75,7 +69,6 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
     const labels = (tagRows ?? [])
       .map((r: any) => r.tags?.label as string | undefined)
       .filter(Boolean) as string[]
-
     const ids = (tagRows ?? []).map((r: any) => r.tag_id as string)
 
     setTags(labels)
@@ -127,36 +120,28 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
       ? `${card.grading_company ?? ''} ${card.grade ?? ''}${card.grading_no ? ` (#${card.grading_no})` : ''}`.trim()
       : 'Raw'
 
-  // --- SAVE TAGS + NOTES (reliable IDs) ---
+  // --- SAVE TAGS + NOTES (with refresh) ---
   async function saveTagsAndNotes() {
     if (!card) return
     setSaving(true)
     try {
+      // ensure we have an authenticated session (needed for RLS writes)
+      await ensureUser()
+
       const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
 
-      // 1) Fetch existing tags by label
-      const { data: existing, error: selErr } = await supabase
-        .from('tags')
-        .select('id,label')
-        .in('label', clean.length ? clean : ['__nope__']) // guard empty list
-      if (selErr) throw selErr
-      const existingMap = new Map((existing ?? []).map((t: any) => [t.label, t.id]))
-
-      // 2) Find which labels are missing and insert them
-      const missing = clean.filter(l => !existingMap.has(l))
-      if (missing.length) {
-        const { data: inserted, error: insErr } = await supabase
+      // Upsert tags → get desired IDs
+      let desiredTagIds: string[] = []
+      if (clean.length) {
+        const { data: up, error: upErr } = await supabase
           .from('tags')
-          .insert(missing.map(label => ({ label })))
-          .select('id,label')
-        if (insErr) throw insErr
-        for (const r of inserted ?? []) existingMap.set(r.label, r.id)
+          .upsert(clean.map(label => ({ label })), { onConflict: 'label' })
+          .select()
+        if (upErr) throw upErr
+        desiredTagIds = (up ?? []).map((t: any) => t.id as string)
       }
 
-      // Desired tag ids
-      const desiredTagIds = clean.map(l => existingMap.get(l)!).filter(Boolean)
-
-      // 3) Diff links
+      // Diff links
       const toRemove = origTagIds.filter(id => !desiredTagIds.includes(id))
       const toAdd = desiredTagIds.filter(id => !origTagIds.includes(id))
 
@@ -169,13 +154,13 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
         if (delErr) throw delErr
       }
       if (toAdd.length) {
-        const { error: linkErr } = await supabase
+        const { error: insErr } = await supabase
           .from('card_tags')
           .insert(toAdd.map(tag_id => ({ card_id: card.id, tag_id })))
-        if (linkErr) throw linkErr
+        if (insErr) throw insErr
       }
 
-      // 4) Update notes
+      // Update notes in DB
       const nextNotes = notes.trim() ? notes.trim() : null
       const { error: nErr } = await supabase
         .from('cards')
@@ -183,7 +168,7 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
         .eq('id', card.id)
       if (nErr) throw nErr
 
-      // 5) Refresh local state so UI shows latest
+      // Refresh local state
       await fetchCardAndTags()
       setEditing(false)
     } catch (e: any) {
@@ -201,9 +186,18 @@ export default function CardDetails({ params }: { params: Promise<ParamsP> }) {
 
   return (
     <div className="max-w-3xl mx-auto p-4 md:p-6">
-      {/* Back (preserve filters) */}
+      {/* Back (preserves filters by using history) */}
       <div className="mb-4">
-        <Link href={backHref} className="text-sm text-indigo-600 hover:underline">← Back</Link>
+        <button
+          onClick={() => {
+            if (typeof window !== 'undefined' && window.history.length > 1) router.back()
+            else router.push('/')
+          }}
+          className="text-sm text-indigo-600 hover:underline"
+          title="Back"
+        >
+          ← Back
+        </button>
       </div>
 
       {/* Hero (smaller, centered) */}

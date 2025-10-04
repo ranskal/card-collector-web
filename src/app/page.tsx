@@ -1,12 +1,20 @@
 // src/app/page.tsx
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { ensureUser } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="py-16 text-center text-slate-500">Loading…</div>}>
+      <HomePageInner />
+    </Suspense>
+  )
+}
 
 type CardRow = {
   id: string
@@ -77,7 +85,7 @@ function applyFilters(
   })
 }
 
-export default function HomePage() {
+function HomePageInner() {
   const router = useRouter()
   const sp = useSearchParams()
   const pathname = usePathname()

@@ -39,6 +39,17 @@ export default function ClientDetails({ id }: { id: string }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
 
+  // global suggestions (all tags)
+  const [allTags, setAllTags] = useState<string[]>([])
+
+  // load suggestions
+  async function loadAllTags() {
+    const { data, error } = await supabase.from('tags').select('label').order('label')
+    if (!error && data) {
+      setAllTags((data as any[]).map(r => r.label).filter(Boolean))
+    }
+  }
+
   // (re)load the page data
   async function fetchCardAndTags() {
     const { data: c, error: cErr } = await supabase
@@ -76,29 +87,23 @@ export default function ClientDetails({ id }: { id: string }) {
     let cancel = false
     ;(async () => {
       try {
-        await fetchCardAndTags()
+        await Promise.all([fetchCardAndTags(), loadAllTags()])
       } catch (e: any) {
         if (!cancel) alert(e.message ?? e)
       }
     })()
-    return () => {
-      cancel = true
-    }
+    return () => { cancel = true }
   }, [id])
 
-  // pick primary image
   useEffect(() => {
     if (!card) return
     const imgs = Array.isArray(card.card_images) ? card.card_images : []
-    const primary = Math.max(0, imgs.findIndex((i) => i.is_primary)) // -1 → 0
+    const primary = Math.max(0, imgs.findIndex(i => i.is_primary))
     setIdx(primary === -1 ? 0 : primary)
   }, [card])
 
-  // esc closes lightbox
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
-    }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false) }
     if (open) window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
@@ -109,16 +114,14 @@ export default function ClientDetails({ id }: { id: string }) {
     storage_path: string
     is_primary?: boolean | null
   }[]
-  const urls = imgs.map((i) => publicUrl(i.storage_path))
+  const urls = imgs.map(i => publicUrl(i.storage_path))
   const activeUrl = urls[idx]
 
-  const title = `${card.year ?? ''} ${card.brand ?? ''} #${card.card_no ?? ''}`.trim()
+  const title  = `${card.year ?? ''} ${card.brand ?? ''} #${card.card_no ?? ''}`.trim()
   const player = card.player?.full_name || 'Unknown Player'
   const graded =
     card.is_graded && (card.grading_company || card.grade)
-      ? `${card.grading_company ?? ''} ${card.grade ?? ''}${
-          card.grading_no ? ` (#${card.grading_no})` : ''
-        }`.trim()
+      ? `${card.grading_company ?? ''} ${card.grade ?? ''}${card.grading_no ? ` (#${card.grading_no})` : ''}`.trim()
       : 'Raw'
 
   // SAVE TAGS + NOTES
@@ -128,26 +131,29 @@ export default function ClientDetails({ id }: { id: string }) {
     try {
       await ensureUser()
 
-      // Force-commit any pending tag text (mobile tap Save before Enter)
+      // Force-commit any pending tag text
       ;(document.activeElement as HTMLElement | null)?.blur?.()
       await new Promise((r) => setTimeout(r, 0))
 
-      const clean = Array.from(new Set(tags.map((t) => t.trim()).filter(Boolean)))
+      const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
 
-      // Upsert tags → get desired IDs
+      // Upsert tags → get IDs
       let desiredTagIds: string[] = []
       if (clean.length) {
         const { data: up, error: upErr } = await supabase
           .from('tags')
-          .upsert(clean.map((label) => ({ label })), { onConflict: 'label' })
+          .upsert(clean.map(label => ({ label })), { onConflict: 'label' })
           .select()
         if (upErr) throw upErr
         desiredTagIds = (up ?? []).map((t: any) => t.id as string)
+
+        // ensure suggestions include new tags immediately
+        setAllTags(prev => Array.from(new Set([...prev, ...clean])))
       }
 
       // Diff links
-      const toRemove = origTagIds.filter((id) => !desiredTagIds.includes(id))
-      const toAdd = desiredTagIds.filter((id) => !origTagIds.includes(id))
+      const toRemove = origTagIds.filter(id => !desiredTagIds.includes(id))
+      const toAdd = desiredTagIds.filter(id => !origTagIds.includes(id))
 
       if (toRemove.length) {
         const { error: delErr } = await supabase
@@ -158,17 +164,20 @@ export default function ClientDetails({ id }: { id: string }) {
         if (delErr) throw delErr
       }
       if (toAdd.length) {
-        const payload = toAdd.map((tag_id) => ({ card_id: card.id, tag_id }))
-        const { error: insErr } = await supabase.from('card_tags').insert(payload)
+        const { error: insErr } = await supabase
+          .from('card_tags')
+          .insert(toAdd.map(tag_id => ({ card_id: card.id, tag_id })))
         if (insErr) throw insErr
       }
 
       // Update notes
       const nextNotes = notes.trim() ? notes.trim() : null
-      const { error: nErr } = await supabase.from('cards').update({ notes: nextNotes }).eq('id', card.id)
+      const { error: nErr } = await supabase
+        .from('cards')
+        .update({ notes: nextNotes })
+        .eq('id', card.id)
       if (nErr) throw nErr
 
-      // Refresh
       await fetchCardAndTags()
       setEditing(false)
     } catch (e: any) {
@@ -189,16 +198,11 @@ export default function ClientDetails({ id }: { id: string }) {
       router.back()
     } else {
       const q = new URLSearchParams()
-      const s = sp.get('sport')
-      if (s) q.set('sport', s)
-      const p = sp.get('player')
-      if (p) q.set('player', p)
-      const y = sp.get('year')
-      if (y) q.set('year', y)
-      const t = sp.get('type')
-      if (t) q.set('type', t)
-      const tags = sp.getAll('tags')
-      if (tags.length) tags.forEach((tag) => q.append('tags', tag))
+      const s = sp.get('sport');  if (s) q.set('sport', s)
+      const p = sp.get('player'); if (p) q.set('player', p)
+      const y = sp.get('year');   if (y) q.set('year', y)
+      const t = sp.get('type');   if (t) q.set('type', t)
+      const tags = sp.getAll('tags'); if (tags.length) tags.forEach(tag => q.append('tags', tag))
       const qs = q.toString()
       router.push(qs ? `/?${qs}` : '/')
     }
@@ -295,11 +299,7 @@ export default function ClientDetails({ id }: { id: string }) {
             <>
               <div className="flex flex-wrap gap-2">
                 {initialTags.length ? (
-                  initialTags.map((t) => (
-                    <span key={t} className="pill">
-                      {t}
-                    </span>
-                  ))
+                  initialTags.map(t => <span key={t} className="pill">{t}</span>)
                 ) : (
                   <span className="text-sm text-slate-500">No tags</span>
                 )}
@@ -318,7 +318,7 @@ export default function ClientDetails({ id }: { id: string }) {
                 value={tags}
                 onChange={setTags}
                 placeholder="Add a tag and press Enter (e.g., RC, Auto)"
-                suggestions={['RC', 'Auto', 'Refractor', 'Numbered', 'Patch', 'HOF']}
+                suggestions={allTags}
               />
               <textarea
                 className="mt-3 w-full rounded border px-2 py-1 text-sm"

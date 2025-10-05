@@ -1,3 +1,4 @@
+// src/app/add/page.tsx
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -120,20 +121,32 @@ export default function AddPage() {
   }
   function clearImages() { setImages(prev => { prev.forEach(p => URL.revokeObjectURL(p.url)); return [] }) }
 
-  // helper: upsert tags and be sure to get IDs even if RLS strips RETURNING
-  async function upsertTagsGetIds(labels: string[]): Promise<string[]> {
+  // ---- TAGS: ensure all labels exist, then return their ids (no reliance on upsert RETURNING) ----
+  async function getTagIdsEnsure(labels: string[]): Promise<string[]> {
     if (!labels.length) return []
-    const payload = labels.map(label => ({ label }))
-    const { data: up, error: upErr } = await supabase.from('tags').upsert(payload, { onConflict: 'label' }).select('id,label')
-    if (upErr) throw upErr
-    let rows = up ?? []
-    if (!rows.length) {
-      const { data: fetch, error: fetchErr } = await supabase.from('tags').select('id,label').in('label', labels)
-      if (fetchErr) throw fetchErr
-      rows = fetch ?? []
+
+    // 1) Read existing tags
+    const { data: existing, error: exErr } = await supabase
+      .from('tags')
+      .select('id,label')
+      .in('label', labels)
+    if (exErr) throw exErr
+
+    const have = new Map<string, string>((existing ?? []).map((r: any) => [r.label as string, r.id as string]))
+    const toInsert = labels.filter(l => !have.has(l)).map(label => ({ label }))
+
+    // 2) Insert any missing
+    if (toInsert.length) {
+      const { data: inserted, error: insErr } = await supabase
+        .from('tags')
+        .insert(toInsert)
+        .select('id,label')
+      if (insErr) throw insErr
+      for (const r of inserted ?? []) have.set(r.label as string, r.id as string)
     }
-    const map = new Map((rows as any[]).map(r => [r.label, r.id]))
-    return labels.map(l => map.get(l)).filter(Boolean) as string[]
+
+    // 3) Return ids in the same order as labels
+    return labels.map(l => have.get(l)).filter(Boolean) as string[]
   }
 
   async function save() {
@@ -182,10 +195,10 @@ export default function AddPage() {
         .single()
       if (cErr || !card) throw cErr ?? new Error('Failed to insert card')
 
-      // tags
+      // ---- TAGS: read existing → insert missing → link all ----
       const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
       if (clean.length) {
-        const tagIds = await upsertTagsGetIds(clean)
+        const tagIds = await getTagIdsEnsure(clean)
         if (tagIds.length) {
           const payload = tagIds.map(tag_id => ({ card_id: card.id, tag_id }))
           const { error: linkErr } = await supabase.from('card_tags').insert(payload)

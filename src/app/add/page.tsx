@@ -182,20 +182,34 @@ export default function AddPage() {
         .single()
       if (cErr || !card) throw cErr ?? new Error('Failed to insert card')
 
-      // upsert tags and link to card (requires unique index on tags.label)
+      // upsert tags and link to card
       if (tags.length) {
-        const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
+        const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)));
         if (clean.length) {
-          const { data: tagRows, error: tagErr } = await supabase
+          // First try to upsert and read back ids
+          const { data: up, error: upErr } = await supabase
             .from('tags')
             .upsert(clean.map(label => ({ label })), { onConflict: 'label' })
-            .select()
-          if (tagErr) throw tagErr
-          const tagIds = (tagRows ?? []).map((t: any) => t.id)
+            .select('id,label');
+          if (upErr) throw upErr;
+
+          let tagRows = up ?? [];
+
+          // If RLS prevented returning rows, fetch by label
+          if (tagRows.length === 0) {
+            const { data: fetched, error: fErr } = await supabase
+              .from('tags')
+              .select('id,label')
+              .in('label', clean);
+            if (fErr) throw fErr;
+            tagRows = fetched ?? [];
+          }
+
+          const tagIds = tagRows.map((t: any) => t.id);
           if (tagIds.length) {
-            const payload = tagIds.map((tag_id: string) => ({ card_id: card.id, tag_id }))
-            const { error: linkErr } = await supabase.from('card_tags').insert(payload)
-            if (linkErr) throw linkErr
+            const payload = tagIds.map((tag_id: string) => ({ card_id: card.id, tag_id }));
+            const { error: linkErr } = await supabase.from('card_tags').insert(payload);
+            if (linkErr) throw linkErr;
           }
         }
       }

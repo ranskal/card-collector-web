@@ -129,16 +129,28 @@ export default function ClientDetails({ id }: { id: string }) {
 
       const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
 
-      // Upsert tags → get desired IDs
-      let desiredTagIds: string[] = []
-      if (clean.length) {
+        // Upsert tags → get desired IDs
+        let desiredTagIds: string[] = [];
+        if (clean.length) {
         const { data: up, error: upErr } = await supabase
-          .from('tags')
-          .upsert(clean.map(label => ({ label })), { onConflict: 'label' })
-          .select()
-        if (upErr) throw upErr
-        desiredTagIds = (up ?? []).map((t: any) => t.id as string)
-      }
+            .from('tags')
+            .upsert(clean.map(label => ({ label })), { onConflict: 'label' })
+            .select('id,label');
+        if (upErr) throw upErr;
+
+        let tagRows = up ?? [];
+
+        if (tagRows.length === 0) {
+            const { data: fetched, error: fErr } = await supabase
+            .from('tags')
+            .select('id,label')
+            .in('label', clean);
+            if (fErr) throw fErr;
+            tagRows = fetched ?? [];
+        }
+
+        desiredTagIds = tagRows.map((t: any) => t.id as string);
+        }
 
       // Diff links
       const toRemove = origTagIds.filter(id => !desiredTagIds.includes(id))

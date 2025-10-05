@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { ensureUser } from '@/lib/auth'
 import { useRouter } from 'next/navigation'
 import CropperModal from '@/components/CropperModal'
-import TagInput from '@/components/TagInput' // ⬅️ uses the component you added
+import TagInput from '@/components/TagInput'
 
 type Player = { id: string; full_name: string }
 
@@ -19,12 +19,10 @@ type LocalImg = { file: File; url: string; isPrimary: boolean }
 export default function AddPage() {
   const router = useRouter()
 
-  // players
   const [players, setPlayers] = useState<Player[]>([])
   const [playerChoice, setPlayerChoice] = useState<string>('') // id or '__OTHER__'
   const [newPlayer, setNewPlayer] = useState('')
 
-  // sport / brand
   const [sports, setSports] = useState<string[]>([...DEFAULT_SPORTS])
   const [brands, setBrands] = useState<string[]>([...DEFAULT_BRANDS])
   const [sportChoice, setSportChoice] = useState<string>(sports[0])
@@ -32,11 +30,9 @@ export default function AddPage() {
   const [customSport, setCustomSport] = useState('')
   const [customBrand, setCustomBrand] = useState('')
 
-  // fields
   const [year, setYear] = useState('')
   const [cardNo, setCardNo] = useState('')
 
-  // grading
   const [isGraded, setIsGraded] = useState(false)
   const [companies, setCompanies] = useState<string[]>([...DEFAULT_COMPANIES])
   const [companyChoice, setCompanyChoice] = useState<string>('') // '' or company or '__OTHER__'
@@ -44,20 +40,16 @@ export default function AddPage() {
   const [gradingNo, setGradingNo] = useState('')
   const [grade, setGrade] = useState('')
 
-  // tags + notes
   const [tags, setTags] = useState<string[]>([])
   const [notes, setNotes] = useState('')
 
-  // images (cropped files + previews)
   const [images, setImages] = useState<LocalImg[]>([])
 
-  // ---- cropping queue state ----
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [cropQueue, setCropQueue] = useState<File[]>([])
   const [activeFile, setActiveFile] = useState<File | null>(null)
   const [tmpCardId] = useState(() => String(Date.now()))
 
-  // load players
   useEffect(() => {
     ;(async () => {
       const u = await ensureUser()
@@ -76,7 +68,6 @@ export default function AddPage() {
   const showNewBrand = brandChoice === '__OTHER_BRAND__'
   const showNewCompany = isGraded && companyChoice === '__OTHER_COMPANY__'
 
-  // add custom values inline
   function addSport() {
     const s = customSport.trim()
     if (!s) return
@@ -99,7 +90,6 @@ export default function AddPage() {
     setCustomCompany('')
   }
 
-  // ---- image picking + crop flow ----
   function openPicker() { fileInputRef.current?.click() }
   function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
@@ -128,117 +118,107 @@ export default function AddPage() {
       return next
     })
   }
-  function clearImages() {
-    setImages(prev => { prev.forEach(p => URL.revokeObjectURL(p.url)); return [] })
+  function clearImages() { setImages(prev => { prev.forEach(p => URL.revokeObjectURL(p.url)); return [] }) }
+
+  // helper: upsert tags and be sure to get IDs even if RLS strips RETURNING
+  async function upsertTagsGetIds(labels: string[]): Promise<string[]> {
+    if (!labels.length) return []
+    const payload = labels.map(label => ({ label }))
+    const { data: up, error: upErr } = await supabase.from('tags').upsert(payload, { onConflict: 'label' }).select('id,label')
+    if (upErr) throw upErr
+    let rows = up ?? []
+    if (!rows.length) {
+      const { data: fetch, error: fetchErr } = await supabase.from('tags').select('id,label').in('label', labels)
+      if (fetchErr) throw fetchErr
+      rows = fetch ?? []
+    }
+    const map = new Map((rows as any[]).map(r => [r.label, r.id]))
+    return labels.map(l => map.get(l)).filter(Boolean) as string[]
   }
 
-  // save to DB
-// ⬇️ replace your entire save() with this
-async function save() {
-  try {
-    const u = await ensureUser();
+  async function save() {
+    try {
+      const u = await ensureUser()
 
-    // resolve player id (unchanged)
-    let playerId = playerChoice;
-    if (!playerId || playerId === '__OTHER__') {
-      const name = newPlayer.trim();
-      if (!name) return alert('Please enter a player name.');
-      const { data: existing } = await supabase.from('players').select('id').eq('full_name', name).maybeSingle();
-      if (existing) {
-        playerId = existing.id;
-      } else {
-        const { data: inserted, error } = await supabase.from('players').insert({ full_name: name }).select().single();
-        if (error || !inserted) throw error ?? new Error('Failed to insert player');
-        playerId = inserted.id;
-        setPlayers(prev => [...prev, { id: inserted.id, full_name: name }].sort((a,b)=>a.full_name.localeCompare(b.full_name)));
-      }
-    }
-
-    if (!year.trim() || isNaN(+year)) return alert('Year must be a number.');
-
-    // resolve graded company if needed (unchanged)
-    let gradingCompany: string | null = null;
-    if (isGraded) {
-      if (!companyChoice) return alert('Select a grading company or choose Other…');
-      gradingCompany = companyChoice === '__OTHER_COMPANY__' ? (customCompany.trim() || null) : companyChoice;
-      if (!gradingCompany) return alert('Enter a grading company.');
-    }
-
-    // ✅ create card with owner_id (important for RLS)
-    const { data: card, error: cErr } = await supabase
-      .from('cards')
-      .insert({
-        owner_id: u.id,
-        player_id: playerId,
-        sport: showNewSport ? customSport.trim() : sportChoice,
-        brand: showNewBrand ? customBrand.trim() : brandChoice,
-        year: parseInt(year, 10),
-        card_no: cardNo || null,
-        is_graded: isGraded,
-        grading_company: gradingCompany,
-        grading_no: isGraded ? (gradingNo || null) : null,
-        grade: isGraded && grade ? Number(grade) : null,
-        notes: notes.trim() ? notes.trim() : null,
-      })
-      .select()
-      .single();
-
-    if (cErr || !card) throw cErr ?? new Error('Failed to insert card');
-
-    // ✅ upsert tags, then explicitly fetch ids, then link
-    if (tags.length) {
-      const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)));
-      if (clean.length) {
-        const { error: upErr } = await supabase
-          .from('tags')
-          .upsert(clean.map(label => ({ label })), { onConflict: 'label' });
-        if (upErr) throw upErr;
-
-        const { data: idRows, error: idErr } = await supabase
-          .from('tags')
-          .select('id,label')
-          .in('label', clean);
-        if (idErr) throw idErr;
-
-        const payload = (idRows ?? []).map(r => ({ card_id: card.id, tag_id: r.id }));
-        if (payload.length) {
-          const { error: linkErr } = await supabase.from('card_tags').insert(payload);
-          if (linkErr) {
-            console.error('[card_tags insert failed]', linkErr);
-            alert(`Tag link failed: ${linkErr.message}`);
-            throw linkErr;
-          }
+      let playerId = playerChoice
+      if (!playerId || playerId === '__OTHER__') {
+        const name = newPlayer.trim()
+        if (!name) return alert('Please enter a player name.')
+        const { data: existing } = await supabase.from('players').select('id').eq('full_name', name).maybeSingle()
+        if (existing) {
+          playerId = existing.id
+        } else {
+          const { data: inserted, error } = await supabase.from('players').insert({ full_name: name }).select().single()
+          if (error || !inserted) throw error ?? new Error('Failed to insert player')
+          playerId = inserted.id
+          setPlayers(prev => [...prev, { id: inserted.id, full_name: name }].sort((a,b)=>a.full_name.localeCompare(b.full_name)))
         }
       }
-    }
 
-    // upload images (unchanged)
-    if (images.length) {
-      const uploadedPaths: { path: string; isPrimary: boolean }[] = [];
-      for (let i = 0; i < images.length; i++) {
-        const img = images[i];
-        const ext = img.file.name.split('.').pop()?.toLowerCase() || 'jpg';
-        const path = `${u.id}/${tmpCardId}/${Date.now()}-${i}.${ext}`;
-        const { error } = await supabase.storage.from('card-images').upload(
-          path, img.file, { upsert: false, contentType: img.file.type || 'image/jpeg' }
-        );
-        if (error) throw error;
-        uploadedPaths.push({ path, isPrimary: img.isPrimary });
+      if (!year.trim() || isNaN(+year)) return alert('Year must be a number.')
+
+      let gradingCompany: string | null = null
+      if (isGraded) {
+        if (!companyChoice) return alert('Select a grading company or choose Other…')
+        gradingCompany = companyChoice === '__OTHER_COMPANY__' ? (customCompany.trim() || null) : companyChoice
+        if (!gradingCompany) return alert('Enter a grading company.')
       }
-      const payload = uploadedPaths.map(p => ({ card_id: card.id, storage_path: p.path, is_primary: p.isPrimary }));
-      const { error: imgErr } = await supabase.from('card_images').insert(payload);
-      if (imgErr) throw imgErr;
-    }
 
-    // iOS focus fix + done
-    (document.activeElement as HTMLElement | null)?.blur?.();
-    try { localStorage.setItem('cards_last_update', String(Date.now())); } catch {}
-    alert('Saved!');
-    router.push('/');
-  } catch (e: any) {
-    alert(`Save failed: ${e.message ?? e}`);
+      const { data: card, error: cErr } = await supabase
+        .from('cards')
+        .insert({
+          player_id: playerId,
+          sport: showNewSport ? customSport.trim() : sportChoice,
+          brand: showNewBrand ? customBrand.trim() : brandChoice,
+          year: parseInt(year, 10),
+          card_no: cardNo || null,
+          is_graded: isGraded,
+          grading_company: gradingCompany,
+          grading_no: isGraded ? (gradingNo || null) : null,
+          grade: isGraded && grade ? Number(grade) : null,
+          notes: notes.trim() ? notes.trim() : null,
+        })
+        .select()
+        .single()
+      if (cErr || !card) throw cErr ?? new Error('Failed to insert card')
+
+      // tags
+      const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
+      if (clean.length) {
+        const tagIds = await upsertTagsGetIds(clean)
+        if (tagIds.length) {
+          const payload = tagIds.map(tag_id => ({ card_id: card.id, tag_id }))
+          const { error: linkErr } = await supabase.from('card_tags').insert(payload)
+          if (linkErr) throw linkErr
+        }
+      }
+
+      // images
+      if (images.length) {
+        const uploadedPaths: { path: string; isPrimary: boolean }[] = []
+        for (let i = 0; i < images.length; i++) {
+          const img = images[i]
+          const ext = img.file.name.split('.').pop()?.toLowerCase() || 'jpg'
+          const path = `${u.id}/${tmpCardId}/${Date.now()}-${i}.${ext}`
+          const { error } = await supabase.storage.from('card-images').upload(path, img.file, { upsert: false, contentType: img.file.type || 'image/jpeg' })
+          if (error) throw error
+          uploadedPaths.push({ path, isPrimary: img.isPrimary })
+        }
+        const payload = uploadedPaths.map(p => ({ card_id: card.id, storage_path: p.path, is_primary: p.isPrimary }))
+        const { error: imgErr } = await supabase.from('card_images').insert(payload)
+        if (imgErr) throw imgErr
+      }
+
+      try { localStorage.setItem('cards_last_update', String(Date.now())) } catch {}
+
+      ;(document.activeElement as HTMLElement | null)?.blur?.()
+      alert('Saved!')
+      router.push('/')
+    } catch (e: any) {
+      alert(`Save failed: ${e?.message || e}`)
+      console.error(e)
+    }
   }
-}
 
   const titlePreview = useMemo(() => {
     return `${year || '—'} ${ (brandChoice && brandChoice !== '__OTHER_BRAND__') ? brandChoice : (customBrand || '—') } #${cardNo || '—'}`
@@ -251,7 +231,6 @@ async function save() {
         <Link href="/" className="text-sm text-gray-600">Back</Link>
       </div>
 
-      {/* Player */}
       <label className="text-sm font-medium">Player</label>
       <select className="border rounded px-2 py-1 w-full" value={playerChoice} onChange={(e) => setPlayerChoice(e.target.value)}>
         {players.map(p => (<option key={p.id} value={p.id}>{p.full_name}</option>))}
@@ -261,7 +240,6 @@ async function save() {
         <input className="border rounded px-2 py-1 w-full" placeholder="New player name" value={newPlayer} onChange={(e) => setNewPlayer(e.target.value)} />
       )}
 
-      {/* Sport */}
       <label className="text-sm font-medium">Sport</label>
       <select className="border rounded px-2 py-1 w-full" value={sportChoice} onChange={(e) => setSportChoice(e.target.value)}>
         {sports.map(s => <option key={s} value={s}>{s}</option>)}
@@ -274,7 +252,6 @@ async function save() {
         </div>
       )}
 
-      {/* Brand */}
       <label className="text-sm font-medium">Brand</label>
       <select className="border rounded px-2 py-1 w-full" value={brandChoice} onChange={(e) => setBrandChoice(e.target.value)}>
         {brands.map(b => <option key={b} value={b}>{b}</option>)}
@@ -287,7 +264,6 @@ async function save() {
         </div>
       )}
 
-      {/* Year / Card # */}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="text-sm font-medium">Year</label>
@@ -299,7 +275,6 @@ async function save() {
         </div>
       </div>
 
-      {/* Graded toggle + preview */}
       <div className="flex items-center gap-3">
         <button className="border rounded px-3 py-1" onClick={() => setIsGraded(v => !v)}>
           {isGraded ? 'Graded: ON' : 'Graded: OFF'}
@@ -336,7 +311,6 @@ async function save() {
         </>
       )}
 
-      {/* Tags */}
       <div>
         <label className="text-sm font-medium">Tags</label>
         <TagInput
@@ -347,25 +321,15 @@ async function save() {
         />
       </div>
 
-      {/* Notes */}
       <div>
         <label className="text-sm font-medium">Notes</label>
-        <textarea
-          className="border rounded px-2 py-1 w-full"
-          rows={3}
-          placeholder="Anything special about this card…"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
+        <textarea className="border rounded px-2 py-1 w-full" rows={3} placeholder="Anything special about this card…" value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
 
-      {/* Images */}
       <div className="space-y-2">
         <label className="text-sm font-medium">Photos</label>
         <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={onPickFiles} />
-        <button className="rounded border px-3 py-1" onClick={openPicker}>
-          {images.length ? 'Add More Photos' : 'Add Photo(s)'}
-        </button>
+        <button className="rounded border px-3 py-1" onClick={openPicker}>{images.length ? 'Add More Photos' : 'Add Photo(s)'}</button>
 
         {images.length > 0 && (
           <div className="flex overflow-x-auto gap-3 py-2">
@@ -384,18 +348,14 @@ async function save() {
             ))}
           </div>
         )}
-        {images.length > 0 && (
-          <button className="text-xs underline" onClick={clearImages}>Clear all</button>
-        )}
+        {images.length > 0 && <button className="text-xs underline" onClick={clearImages}>Clear all</button>}
       </div>
 
       <div className="pt-2">
         <button className="rounded bg-indigo-600 text-white px-4 py-2" onClick={save}>Save</button>
       </div>
 
-      {activeFile && (
-        <CropperModal file={activeFile} aspect={2 / 3} onCancel={cancelCrop} onDone={handleCropped} />
-      )}
+      {activeFile && <CropperModal file={activeFile} aspect={2 / 3} onCancel={cancelCrop} onDone={handleCropped} />}
     </div>
   )
 }

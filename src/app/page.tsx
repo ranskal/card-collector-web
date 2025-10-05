@@ -1,5 +1,6 @@
 'use client'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -30,9 +31,12 @@ function publicUrl(path: string) {
 }
 function Pill({ active, children, onClick, title }: { active?: boolean; children: React.ReactNode; onClick: () => void; title?: string }) {
   return (
-    <button onClick={onClick} title={title} className={['pill', active ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : ''].join(' ')}>{children}</button>
+    <button onClick={onClick} title={title} className={['pill', active ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : ''].join(' ')}>
+      {children}
+    </button>
   )
 }
+
 const s = (v: unknown) => (v ?? '').toString()
 const cmpStr = (a?: string | null, b?: string | null) => s(a).localeCompare(s(b), undefined, { sensitivity: 'base', numeric: true })
 const cmpNumAsc = (a?: number | null, b?: number | null) => (a ?? Number.MAX_SAFE_INTEGER) - (b ?? Number.MAX_SAFE_INTEGER)
@@ -42,7 +46,11 @@ const cmpCardNo = (a?: string | null, b?: string | null) => {
   if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb
   return cmpStr(a, b)
 }
-function arraysEqual(a: string[], b: string[]) { if (a.length !== b.length) return false; for (let i=0;i<a.length;i++) if (a[i]!==b[i]) return false; return true }
+function arraysEqual(a: string[], b: string[]) {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
 function applyFilters(list: CardRow[], opts: { sport?: string; player?: string; year?: string; type?: TypeFilter; tags?: string[] }) {
   const { sport, player, year, type, tags } = opts
   return list.filter((c) => {
@@ -56,7 +64,7 @@ function applyFilters(list: CardRow[], opts: { sport?: string; player?: string; 
   })
 }
 
-function Home() {
+export default function HomePage() {
   const router = useRouter()
   const sp = useSearchParams()
   const pathname = usePathname()
@@ -71,7 +79,6 @@ function Home() {
   const [tagFilter, setTagFilter] = useState<string[]>([])     // multi
   const [openFilter, setOpenFilter] = useState<FilterKey>(null)
 
-  // Sync FROM URL → state (fixes iOS back/forward & soft nav)
   useEffect(() => {
     const sURL = sp.get('sport') || ''
     const pURL = sp.get('player') || ''
@@ -84,9 +91,8 @@ function Home() {
     if (yURL !== yearFilter) setYearFilter(yURL)
     if (tURL !== typeFilter) setTypeFilter(tURL)
     if (!arraysEqual(tagsURL, tagFilter)) setTagFilter(tagsURL)
-  }, [sp])
+  }, [sp]) // compare before setting
 
-  // Keep URL in sync with state
   const lastQs = useRef<string>('')
   useEffect(() => {
     const q = new URLSearchParams()
@@ -102,7 +108,6 @@ function Home() {
     }
   }, [sportFilter, playerFilter, yearFilter, typeFilter, tagFilter, pathname, router])
 
-  // Data
   async function loadCards() {
     setLoading(true)
     await ensureUser()
@@ -120,20 +125,28 @@ function Home() {
     setLoading(false)
   }
   useEffect(() => { loadCards() }, [])
+
+  // 🔄 Refresh when returning from details (covers iOS bfcache + normal back)
   useEffect(() => {
-    const onShow = () => { if (document.visibilityState === 'visible') loadCards() }
+    const onShow = (e: any) => { if (document.visibilityState === 'visible' || e?.persisted) loadCards() }
+    const onStorage = (e: StorageEvent) => { if (e.key === 'cards_last_update') loadCards() }
     window.addEventListener('focus', onShow)
-    document.addEventListener('visibilitychange', onShow)
-    return () => { window.removeEventListener('focus', onShow); document.removeEventListener('visibilitychange', onShow) }
+    window.addEventListener('pageshow', onShow)
+    document.addEventListener('visibilitychange', onShow as any)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('focus', onShow)
+      window.removeEventListener('pageshow', onShow)
+      document.removeEventListener('visibilitychange', onShow as any)
+      window.removeEventListener('storage', onStorage)
+    }
   }, [])
 
-  // Options
-  const sportOptions  = useMemo(() => Array.from(new Set(cards.flatMap(c => c.sport ? [c.sport] : []))).sort(), [cards])
+  const sportOptions = useMemo(() => Array.from(new Set(cards.flatMap(c => c.sport ? [c.sport] : []))).sort(), [cards])
   const playerOptions = useMemo(() => Array.from(new Set(cards.flatMap(c => c.player?.full_name ? [c.player.full_name] : []))).sort((a,b)=>a.localeCompare(b)), [cards])
-  const yearOptions   = useMemo(() => Array.from(new Set(cards.flatMap(c => typeof c.year === 'number' ? [c.year] : []))).sort((a,b)=>a-b), [cards])
-  const tagOptions    = useMemo(() => Array.from(new Set(cards.flatMap(c => (c.card_tags ?? []).map(ct => ct?.tags?.label).filter(Boolean) as string[]))).sort((a,b)=>a.localeCompare(b)), [cards])
+  const yearOptions = useMemo(() => Array.from(new Set(cards.flatMap(c => typeof c.year === 'number' ? [c.year] : []))).sort((a,b)=>a-b), [cards])
+  const tagOptions = useMemo(() => Array.from(new Set(cards.flatMap(c => (c.card_tags ?? []).map(ct => ct?.tags?.label).filter(Boolean) as string[]))).sort((a,b)=>a.localeCompare(b)), [cards])
 
-  // Filtered + Sorted
   const filtered = useMemo(() => applyFilters(cards, { sport: sportFilter, player: playerFilter, year: yearFilter, type: typeFilter, tags: tagFilter }), [cards, sportFilter, playerFilter, yearFilter, typeFilter, tagFilter])
   const sorted = useMemo(() => {
     const list = [...filtered]
@@ -146,7 +159,6 @@ function Home() {
     return list
   }, [filtered])
 
-  // Counts for popups
   const typeCounts = useMemo(() => {
     const base = applyFilters(cards, { sport: sportFilter, player: playerFilter, year: yearFilter, type: undefined, tags: tagFilter })
     const graded = base.filter(c => c.is_graded === true).length
@@ -178,7 +190,6 @@ function Home() {
     return { all: base.length, by }
   }, [cards, sportFilter, playerFilter, yearFilter, typeFilter])
 
-  // Delete
   async function handleDelete(card: CardRow) {
     const label = `${card.player?.full_name || 'Unknown Player'} • ${[card.year && String(card.year), card.brand, card.card_no && `#${card.card_no}`].filter(Boolean).join(' ') || '—'}`
     if (!confirm(`Delete: ${label}?\n\nThis will remove the card and its photo(s).`)) return
@@ -189,7 +200,6 @@ function Home() {
     setCards(prev => prev.filter(c => c.id !== card.id))
   }
 
-  // Labels
   const sportLabel  = sportFilter  ? `Sport: ${sportFilter}`   : 'Sport: All'
   const playerLabel = playerFilter ? `Player: ${playerFilter}` : 'Player: All'
   const yearLabel   = yearFilter   ? `Year: ${yearFilter}`     : 'Year: All'
@@ -209,7 +219,9 @@ function Home() {
     }
     if (openFilter !== 'tags') closeDialog()
   }
-  function toggleTag(tag: string) { setTagFilter(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]) }
+  function toggleTag(tag: string) {
+    setTagFilter(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])
+  }
   function clearTags() { setTagFilter([]) }
 
   const currentOptions: string[] = useMemo(() => {
@@ -247,14 +259,19 @@ function Home() {
           <Pill active={!!yearFilter} onClick={()=>openFilterDialog('year')}>{yearLabel}</Pill>
           <Pill active={!!typeFilter} onClick={()=>openFilterDialog('type')}>{typeLabel}</Pill>
           <Pill active={tagFilter.length>0} onClick={()=>openFilterDialog('tags')}>{tagsLabel}</Pill>
-          <button onClick={() => { setSportFilter(''); setPlayerFilter(''); setYearFilter(''); setTypeFilter(''); setTagFilter([]) }} className="btn btn-outline ml-auto" title="Clear filters">Clear</button>
+          <button
+            onClick={() => { setSportFilter(''); setPlayerFilter(''); setYearFilter(''); setTypeFilter(''); setTagFilter([]) }}
+            className="btn btn-outline ml-auto"
+            title="Clear filters"
+          >
+            Clear
+          </button>
         </div>
       </div>
 
       {!loading && <div className="text-xs text-slate-500">{sorted.length} card{sorted.length===1?'':'s'}</div>}
       {loading && <div className="py-16 text-center text-slate-500">Loading…</div>}
 
-      {/* List */}
       <div className="space-y-2">
         {sorted.map((c) => {
           const imgs = Array.isArray(c.card_images) ? c.card_images : []
@@ -270,8 +287,6 @@ function Home() {
           if (typeFilter) query.type = typeFilter
           if (tagFilter.length) query.tags = tagFilter
 
-          const tagLabels = (c.card_tags ?? []).map(ct => ct?.tags?.label).filter(Boolean) as string[]
-
           return (
             <div key={c.id} className="card p-2">
               <div className="flex items-center gap-2">
@@ -281,16 +296,15 @@ function Home() {
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold">{c.player?.full_name || 'Unknown Player'}</div>
                   <div className="truncate text-xs text-slate-600">{title}</div>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <span className="pill px-2 py-0.5 text-[11px]">{chip || 'Raw'}</span>
-                    {tagLabels.map(t => (
-                      <span key={t} className="pill px-2 py-0.5 text-[11px]">{t}</span>
-                    ))}
-                  </div>
+                  <div className="mt-1"><span className="pill px-2 py-0.5 text-[11px]">{chip || 'Raw'}</span></div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <Link href={{ pathname: `/card/${c.id}`, query }} className="rounded-lg border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50" title="Details">Details</Link>
-                  <button onClick={() => handleDelete(c)} title="Delete" className="rounded-lg border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50">Delete</button>
+                  <Link href={{ pathname: `/card/${c.id}`, query }} className="rounded-lg border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50" title="Details">
+                    Details
+                  </Link>
+                  <button onClick={() => handleDelete(c)} title="Delete" className="rounded-lg border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50">
+                    Delete
+                  </button>
                 </div>
               </div>
             </div>
@@ -300,12 +314,13 @@ function Home() {
         {!loading && sorted.length === 0 && (
           <div className="py-16 text-center text-slate-500">
             No cards match your filters.{' '}
-            <button className="link" onClick={() => { setSportFilter(''); setPlayerFilter(''); setYearFilter(''); setTypeFilter(''); setTagFilter([]) }}>Clear filters</button>.
+            <button className="link" onClick={() => { setSportFilter(''); setPlayerFilter(''); setYearFilter(''); setTypeFilter(''); setTagFilter([]) }}>
+              Clear filters
+            </button>.
           </div>
         )}
       </div>
 
-      {/* Filter popup */}
       {openFilter && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onClick={closeDialog}>
           <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -347,7 +362,11 @@ function Home() {
                   else if (openFilter === 'tags') count = tagCounts.by[opt] ?? 0
                   const isActive = openFilter === 'tags' ? tagFilter.includes(opt) : currentValue === opt
                   return (
-                    <button key={opt} onClick={() => { openFilter === 'tags' ? toggleTag(opt) : chooseFilter(opt) }} className={['w-full text-left rounded-lg border px-3 py-2', isActive ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 hover:bg-slate-50'].join(' ')}>
+                    <button
+                      key={opt}
+                      onClick={() => { openFilter === 'tags' ? toggleTag(opt) : chooseFilter(opt) }}
+                      className={['w-full text-left rounded-lg border px-3 py-2', isActive ? 'border-indigo-300 bg-indigo-50 text-indigo-700' : 'border-slate-200 hover:bg-slate-50'].join(' ')}
+                    >
                       {openFilter === 'tags' && (isActive ? '✓ ' : '')}{opt} ({count})
                     </button>
                   )
@@ -362,13 +381,5 @@ function Home() {
         </div>
       )}
     </div>
-  )
-}
-
-export default function Page() {
-  return (
-    <Suspense fallback={<div className="py-16 text-center text-slate-500">Loading…</div>}>
-      <Home />
-    </Suspense>
   )
 }

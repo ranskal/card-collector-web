@@ -4,13 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import Cropper, { Area } from 'react-easy-crop'
 
 type Props = {
-  /** Image file to crop */
   file: File
-  /** Aspect ratio (e.g. 2/3 for trading cards) */
   aspect?: number
-  /** Called when user cancels the crop */
   onCancel: () => void
-  /** Called with the cropped Blob when user confirms */
   onDone: (blob: Blob) => void | Promise<void>
 }
 
@@ -20,14 +16,12 @@ export default function CropperModal({
   onCancel,
   onDone,
 }: Props) {
-  // preview URL for the incoming file
   const url = useMemo(() => URL.createObjectURL(file), [file])
-  useEffect(() => {
-    return () => URL.revokeObjectURL(url)
-  }, [url])
+  useEffect(() => () => URL.revokeObjectURL(url), [url])
 
   const [crop, setCrop] = useState({ x: 0, y: 0 })
-  const [zoom, setZoom] = useState(1)
+  // Start slightly zoomed out, and allow down to 0.35
+  const [zoom, setZoom] = useState(0.9)
   const [area, setArea] = useState<Area | null>(null)
 
   function onCropComplete(_: Area, croppedAreaPixels: Area) {
@@ -56,13 +50,15 @@ export default function CropperModal({
             showGrid={false}
             objectFit="contain"
             restrictPosition={false}
+            minZoom={0.35}
+            maxZoom={4}
           />
         </div>
 
         <div className="flex items-center gap-4 p-4">
           <input
             type="range"
-            min={1}
+            min={0.35}
             max={4}
             step={0.01}
             value={zoom}
@@ -70,16 +66,10 @@ export default function CropperModal({
             className="flex-1"
             aria-label="Zoom"
           />
-          <button
-            onClick={onCancel}
-            className="rounded border px-3 py-1 text-gray-700"
-          >
+          <button onClick={onCancel} className="rounded border px-3 py-1 text-gray-700">
             Cancel
           </button>
-          <button
-            onClick={handleUsePhoto}
-            className="rounded bg-indigo-600 text-white px-4 py-1.5"
-          >
+          <button onClick={handleUsePhoto} className="rounded bg-indigo-600 text-white px-4 py-1.5">
             Use Photo
           </button>
         </div>
@@ -88,7 +78,6 @@ export default function CropperModal({
   )
 }
 
-/** Crop the given image URL to the pixel area and return a JPEG Blob */
 async function cropToBlob(imageUrl: string, area: Area): Promise<Blob> {
   const img = await loadImage(imageUrl)
   const canvas = document.createElement('canvas')

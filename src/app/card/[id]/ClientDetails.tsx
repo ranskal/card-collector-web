@@ -121,76 +121,73 @@ export default function ClientDetails({ id }: { id: string }) {
       : 'Raw'
 
   // --- SAVE TAGS + NOTES (with refresh signal for list page) ---
-  async function saveTagsAndNotes() {
-    if (!card) return
-    setSaving(true)
-    try {
-      await ensureUser()
+// ⬇️ replace your entire saveTagsAndNotes() with this
+async function saveTagsAndNotes() {
+  if (!card) return;
+  setSaving(true);
+  try {
+    await ensureUser();
 
-      const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)))
+    const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)));
 
-        // Upsert tags → get desired IDs
-        let desiredTagIds: string[] = [];
-        if (clean.length) {
-        const { data: up, error: upErr } = await supabase
-            .from('tags')
-            .upsert(clean.map(label => ({ label })), { onConflict: 'label' })
-            .select('id,label');
-        if (upErr) throw upErr;
+    // Upsert labels, then always SELECT ids by label
+    let desiredTagIds: string[] = [];
+    if (clean.length) {
+      const { error: upErr } = await supabase
+        .from('tags')
+        .upsert(clean.map(label => ({ label })), { onConflict: 'label' });
+      if (upErr) throw upErr;
 
-        let tagRows = up ?? [];
+      const { data: idRows, error: idErr } = await supabase
+        .from('tags')
+        .select('id,label')
+        .in('label', clean);
+      if (idErr) throw idErr;
 
-        if (tagRows.length === 0) {
-            const { data: fetched, error: fErr } = await supabase
-            .from('tags')
-            .select('id,label')
-            .in('label', clean);
-            if (fErr) throw fErr;
-            tagRows = fetched ?? [];
-        }
-
-        desiredTagIds = tagRows.map((t: any) => t.id as string);
-        }
-
-      // Diff links
-      const toRemove = origTagIds.filter(id => !desiredTagIds.includes(id))
-      const toAdd = desiredTagIds.filter(id => !origTagIds.includes(id))
-
-      if (toRemove.length) {
-        const { error: delErr } = await supabase
-          .from('card_tags')
-          .delete()
-          .eq('card_id', card.id)
-          .in('tag_id', toRemove)
-        if (delErr) throw delErr
-      }
-      if (toAdd.length) {
-        const { error: insErr } = await supabase
-          .from('card_tags')
-          .insert(toAdd.map(tag_id => ({ card_id: card.id, tag_id })))
-        if (insErr) throw insErr
-      }
-
-      // Update notes
-      const nextNotes = notes.trim() ? notes.trim() : null
-      const { error: nErr } = await supabase
-        .from('cards')
-        .update({ notes: nextNotes })
-        .eq('id', card.id)
-      if (nErr) throw nErr
-
-      // ✅ tell the list page to refresh after back (covers iOS bfcache)
-      try { localStorage.setItem('cards_last_update', String(Date.now())) } catch {}
-
-      // Refresh local state so UI shows the saved data
-      await fetchCardAndTags()
-      setEditing(false)
-    } catch (e: any) {
-      alert(`Save failed: ${e.message ?? e}`)
-    } finally {
-      setSaving(false)
+      desiredTagIds = (idRows ?? []).map(r => r.id as string);
     }
+
+    // Diff existing vs desired
+    const toRemove = origTagIds.filter(id => !desiredTagIds.includes(id));
+    const toAdd = desiredTagIds.filter(id => !origTagIds.includes(id));
+
+    if (toRemove.length) {
+      const { error: delErr } = await supabase
+        .from('card_tags')
+        .delete()
+        .eq('card_id', card.id)
+        .in('tag_id', toRemove);
+      if (delErr) throw delErr;
+    }
+
+    if (toAdd.length) {
+      const links = toAdd.map(tag_id => ({ card_id: card.id, tag_id }));
+      const { error: linkErr } = await supabase.from('card_tags').insert(links);
+      if (linkErr) {
+        console.error('[card_tags insert failed]', linkErr);
+        alert(`Tag link failed: ${linkErr.message}`);
+        throw linkErr;
+      }
+    }
+
+    // Notes
+    const nextNotes = notes.trim() ? notes.trim() : null;
+    const { error: nErr } = await supabase
+      .from('cards')
+      .update({ notes: nextNotes })
+      .eq('id', card.id);
+    if (nErr) throw nErr;
+
+    // Signal list to refresh + reload this view’s data
+    try { localStorage.setItem('cards_last_update', String(Date.now())); } catch {}
+    await fetchCardAndTags();
+    setEditing(false);
+  } catch (e: any) {
+    alert(`Save failed: ${e.message ?? e}`);
+  } finally {
+    setSaving(false);
   }
+}
 
   function cancelEdit() {
     setTags(initialTags)

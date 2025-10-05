@@ -133,114 +133,112 @@ export default function AddPage() {
   }
 
   // save to DB
-  async function save() {
-    try {
-      const u = await ensureUser()
+// ⬇️ replace your entire save() with this
+async function save() {
+  try {
+    const u = await ensureUser();
 
-      // resolve player id
-      let playerId = playerChoice
-      if (!playerId || playerId === '__OTHER__') {
-        const name = newPlayer.trim()
-        if (!name) return alert('Please enter a player name.')
-        const { data: existing } = await supabase.from('players').select('id').eq('full_name', name).maybeSingle()
-        if (existing) {
-          playerId = existing.id
-        } else {
-          const { data: inserted, error } = await supabase.from('players').insert({ full_name: name }).select().single()
-          if (error || !inserted) throw error ?? new Error('Failed to insert player')
-          playerId = inserted.id
-          setPlayers(prev => [...prev, { id: inserted.id, full_name: name }].sort((a,b)=>a.full_name.localeCompare(b.full_name)))
-        }
+    // resolve player id (unchanged)
+    let playerId = playerChoice;
+    if (!playerId || playerId === '__OTHER__') {
+      const name = newPlayer.trim();
+      if (!name) return alert('Please enter a player name.');
+      const { data: existing } = await supabase.from('players').select('id').eq('full_name', name).maybeSingle();
+      if (existing) {
+        playerId = existing.id;
+      } else {
+        const { data: inserted, error } = await supabase.from('players').insert({ full_name: name }).select().single();
+        if (error || !inserted) throw error ?? new Error('Failed to insert player');
+        playerId = inserted.id;
+        setPlayers(prev => [...prev, { id: inserted.id, full_name: name }].sort((a,b)=>a.full_name.localeCompare(b.full_name)));
       }
-
-      if (!year.trim() || isNaN(+year)) return alert('Year must be a number.')
-
-      // resolve graded company if needed
-      let gradingCompany: string | null = null
-      if (isGraded) {
-        if (!companyChoice) return alert('Select a grading company or choose Other…')
-        gradingCompany = companyChoice === '__OTHER_COMPANY__' ? (customCompany.trim() || null) : companyChoice
-        if (!gradingCompany) return alert('Enter a grading company.')
-      }
-
-      // create card (includes notes)
-      const { data: card, error: cErr } = await supabase
-        .from('cards')
-        .insert({
-          player_id: playerId,
-          sport: showNewSport ? customSport.trim() : sportChoice,
-          brand: showNewBrand ? customBrand.trim() : brandChoice,
-          year: parseInt(year, 10),
-          card_no: cardNo || null,
-          is_graded: isGraded,
-          grading_company: gradingCompany,
-          grading_no: isGraded ? (gradingNo || null) : null,
-          grade: isGraded && grade ? Number(grade) : null,
-          notes: notes.trim() ? notes.trim() : null,    // ⬅️ requires cards.notes column
-        })
-        .select()
-        .single()
-      if (cErr || !card) throw cErr ?? new Error('Failed to insert card')
-
-      // upsert tags and link to card
-      if (tags.length) {
-        const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)));
-        if (clean.length) {
-          // First try to upsert and read back ids
-          const { data: up, error: upErr } = await supabase
-            .from('tags')
-            .upsert(clean.map(label => ({ label })), { onConflict: 'label' })
-            .select('id,label');
-          if (upErr) throw upErr;
-
-          let tagRows = up ?? [];
-
-          // If RLS prevented returning rows, fetch by label
-          if (tagRows.length === 0) {
-            const { data: fetched, error: fErr } = await supabase
-              .from('tags')
-              .select('id,label')
-              .in('label', clean);
-            if (fErr) throw fErr;
-            tagRows = fetched ?? [];
-          }
-
-          const tagIds = tagRows.map((t: any) => t.id);
-          if (tagIds.length) {
-            const payload = tagIds.map((tag_id: string) => ({ card_id: card.id, tag_id }));
-            const { error: linkErr } = await supabase.from('card_tags').insert(payload);
-            if (linkErr) throw linkErr;
-          }
-        }
-      }
-
-      // upload images + rows
-      if (images.length) {
-        const uploadedPaths: { path: string; isPrimary: boolean }[] = []
-        for (let i = 0; i < images.length; i++) {
-          const img = images[i]
-          const ext = img.file.name.split('.').pop()?.toLowerCase() || 'jpg'
-          const path = `${u.id}/${tmpCardId}/${Date.now()}-${i}.${ext}`
-          const { error } = await supabase.storage.from('card-images').upload(
-            path, img.file, { upsert: false, contentType: img.file.type || 'image/jpeg' }
-          )
-          if (error) throw error
-          uploadedPaths.push({ path, isPrimary: img.isPrimary })
-        }
-        const payload = uploadedPaths.map(p => ({ card_id: card.id, storage_path: p.path, is_primary: p.isPrimary }))
-        const { error: imgErr } = await supabase.from('card_images').insert(payload)
-        if (imgErr) throw imgErr
-      }
-
-    // iOS: avoid lingering focus (which causes auto-zoom) before we navigate
-    (document.activeElement as HTMLElement | null)?.blur?.();
-
-      alert('Saved!')
-      router.push('/')
-    } catch (e: any) {
-      alert(`Save failed: ${e.message ?? e}`)
     }
+
+    if (!year.trim() || isNaN(+year)) return alert('Year must be a number.');
+
+    // resolve graded company if needed (unchanged)
+    let gradingCompany: string | null = null;
+    if (isGraded) {
+      if (!companyChoice) return alert('Select a grading company or choose Other…');
+      gradingCompany = companyChoice === '__OTHER_COMPANY__' ? (customCompany.trim() || null) : companyChoice;
+      if (!gradingCompany) return alert('Enter a grading company.');
+    }
+
+    // ✅ create card with owner_id (important for RLS)
+    const { data: card, error: cErr } = await supabase
+      .from('cards')
+      .insert({
+        owner_id: u.id,
+        player_id: playerId,
+        sport: showNewSport ? customSport.trim() : sportChoice,
+        brand: showNewBrand ? customBrand.trim() : brandChoice,
+        year: parseInt(year, 10),
+        card_no: cardNo || null,
+        is_graded: isGraded,
+        grading_company: gradingCompany,
+        grading_no: isGraded ? (gradingNo || null) : null,
+        grade: isGraded && grade ? Number(grade) : null,
+        notes: notes.trim() ? notes.trim() : null,
+      })
+      .select()
+      .single();
+
+    if (cErr || !card) throw cErr ?? new Error('Failed to insert card');
+
+    // ✅ upsert tags, then explicitly fetch ids, then link
+    if (tags.length) {
+      const clean = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)));
+      if (clean.length) {
+        const { error: upErr } = await supabase
+          .from('tags')
+          .upsert(clean.map(label => ({ label })), { onConflict: 'label' });
+        if (upErr) throw upErr;
+
+        const { data: idRows, error: idErr } = await supabase
+          .from('tags')
+          .select('id,label')
+          .in('label', clean);
+        if (idErr) throw idErr;
+
+        const payload = (idRows ?? []).map(r => ({ card_id: card.id, tag_id: r.id }));
+        if (payload.length) {
+          const { error: linkErr } = await supabase.from('card_tags').insert(payload);
+          if (linkErr) {
+            console.error('[card_tags insert failed]', linkErr);
+            alert(`Tag link failed: ${linkErr.message}`);
+            throw linkErr;
+          }
+        }
+      }
+    }
+
+    // upload images (unchanged)
+    if (images.length) {
+      const uploadedPaths: { path: string; isPrimary: boolean }[] = [];
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i];
+        const ext = img.file.name.split('.').pop()?.toLowerCase() || 'jpg';
+        const path = `${u.id}/${tmpCardId}/${Date.now()}-${i}.${ext}`;
+        const { error } = await supabase.storage.from('card-images').upload(
+          path, img.file, { upsert: false, contentType: img.file.type || 'image/jpeg' }
+        );
+        if (error) throw error;
+        uploadedPaths.push({ path, isPrimary: img.isPrimary });
+      }
+      const payload = uploadedPaths.map(p => ({ card_id: card.id, storage_path: p.path, is_primary: p.isPrimary }));
+      const { error: imgErr } = await supabase.from('card_images').insert(payload);
+      if (imgErr) throw imgErr;
+    }
+
+    // iOS focus fix + done
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    try { localStorage.setItem('cards_last_update', String(Date.now())); } catch {}
+    alert('Saved!');
+    router.push('/');
+  } catch (e: any) {
+    alert(`Save failed: ${e.message ?? e}`);
   }
+}
 
   const titlePreview = useMemo(() => {
     return `${year || '—'} ${ (brandChoice && brandChoice !== '__OTHER_BRAND__') ? brandChoice : (customBrand || '—') } #${cardNo || '—'}`

@@ -264,6 +264,8 @@ export default function HomePage() {
 
   // Delete
   async function handleDelete(card: CardRow) {
+    await ensureUser(); // make sure session exists in this tab
+    
     const label =
       `${card.player?.full_name || 'Unknown Player'} • ` +
       (`${[

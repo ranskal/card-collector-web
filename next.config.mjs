@@ -1,26 +1,22 @@
-// next.config.ts
+// next.config.mjs
 import withPWAInit from 'next-pwa'
 
 const isProd = process.env.NODE_ENV === 'production'
 
 const withPWA = withPWAInit({
   dest: 'public',
-  disable: !isProd, // PWA only in prod
+  disable: !isProd, // enable PWA only in prod
 })
 
 const nextConfig = {
   reactStrictMode: true,
   images: {
-    remotePatterns: [
-      { protocol: 'https', hostname: '**.supabase.co' }, // allow Supabase public URLs
-    ],
+    // ⬇️ Turn off Vercel Image Optimization (stops the transform billing)
+    unoptimized: true,
+    remotePatterns: [{ protocol: 'https', hostname: '**.supabase.co' }],
   },
-  eslint: {
-    ignoreDuringBuilds: true,   // ⬅️ unblock Vercel
-  },
-  typescript: {
-    ignoreBuildErrors: true,    // optional: also unblock TS during CI
-  },
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
 }
 
 export default withPWA(nextConfig)

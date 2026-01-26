@@ -80,34 +80,63 @@ export default function CropperModal({
 
 async function cropToBlob(imageUrl: string, area: Area): Promise<Blob> {
   const img = await loadImage(imageUrl)
+
+  // 1) Crop size in pixels (from react-easy-crop)
+  const cropW = Math.round(area.width)
+  const cropH = Math.round(area.height)
+
+  // 2) Resize rule (longest edge cap)
+  const MAX_EDGE = 2000
+  const longest = Math.max(cropW, cropH)
+  const scale = longest > MAX_EDGE ? MAX_EDGE / longest : 1
+
+  const outW = Math.round(cropW * scale)
+  const outH = Math.round(cropH * scale)
+
   const canvas = document.createElement('canvas')
-  const ctx = canvas.getContext('2d')!
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Failed to get 2D canvas context')
 
-  const { width, height, x, y } = area
-  canvas.width = Math.round(width)
-  canvas.height = Math.round(height)
+  canvas.width = outW
+  canvas.height = outH
 
+  // Better downscaling quality
+  ctx.imageSmoothingEnabled = true
+  // @ts-expect-error: some browsers don't type this, but support it
+  ctx.imageSmoothingQuality = 'high'
+
+  // 3) Draw cropped region into resized output canvas
   ctx.drawImage(
     img,
-    Math.round(x),
-    Math.round(y),
-    Math.round(width),
-    Math.round(height),
+    Math.round(area.x),
+    Math.round(area.y),
+    cropW,
+    cropH,
     0,
     0,
-    Math.round(width),
-    Math.round(height)
+    outW,
+    outH
   )
 
-  const blob: Blob = await new Promise((resolve) =>
-    canvas.toBlob((b) => resolve(b as Blob), 'image/jpeg', 0.92)
-  )
+  // 4) Export JPEG with tighter quality
+  const JPEG_QUALITY = 0.78
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error('Failed to create blob'))),
+      'image/jpeg',
+      JPEG_QUALITY
+    )
+  })
+
   return blob
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((res, rej) => {
     const img = new Image()
+    // Helps consistency for blob/object URLs and some browser decode paths
+    img.crossOrigin = 'anonymous'
     img.onload = () => res(img)
     img.onerror = rej
     img.src = src

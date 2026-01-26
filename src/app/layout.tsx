@@ -1,14 +1,20 @@
 // src/app/layout.tsx
-import type { Metadata } from 'next'
 import Link from 'next/link'
 import './globals.css'
+
+import type { Metadata, Viewport } from 'next'
 
 export const metadata: Metadata = {
   title: 'Card Collector',
   description: 'Track your card collection',
+}
+
+export const viewport: Viewport = {
   themeColor: '#ffffff',
-  viewport:
-    'width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1',
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  maximumScale: 1,
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -1,19 +1,28 @@
 // src/components/Pill.tsx
 export default function Pill({
   children,
-  tone = 'neutral',
+  tone = "neutral",
 }: {
-  children: React.ReactNode
-  tone?: 'neutral' | 'primary'
+  children: React.ReactNode;
+  tone?: "neutral" | "primary";
 }) {
-  const styles =
-    tone === 'primary'
-      ? 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100'
-      : 'bg-slate-100 text-slate-700 ring-1 ring-slate-200'
+  const base =
+    "inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold transition shadow-sm";
 
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${styles}`}>
-      {children}
-    </span>
-  )
+  const styles =
+    tone === "primary"
+      ? `
+        bg-indigo-50
+        text-indigo-700
+        ring-1 ring-indigo-200
+        shadow-[0_0_0_2px_rgba(99,102,241,0.08)]
+      `
+      : `
+        bg-white
+        text-slate-600
+        ring-1 ring-slate-200
+        hover:bg-slate-50
+      `;
+
+  return <span className={`${base} ${styles}`}>{children}</span>;
 }

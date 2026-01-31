@@ -1,363 +1,449 @@
 // src/app/card/[id]/ClientDetails.tsx
-'use client'
+"use client";
 
-import { useEffect, useState } from 'react'
-import Image from 'next/image'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
-import { publicUrl } from '@/lib/storage'
-import { ensureUser } from '@/lib/auth'
-import TagInput from '@/components/TagInput'
+import { useEffect, useState } from "react";
+import Image from "next/image";
+import { useRouter, useSearchParams } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import { publicUrl } from "@/lib/storage";
+import { ensureUser } from "@/lib/auth";
+import TagInput from "@/components/TagInput";
+import ImageCarousel from "@/components/ImageCarousel";
+import GradeBadge from "@/components/GradeBadge";
 
 type Card = {
-  id: string
-  year: number | null
-  brand: string | null
-  card_no: string | null
-  sport: string | null
-  is_graded: boolean | null
-  grade: number | null
-  grading_company: string | null
-  grading_no: string | null
-  notes: string | null
-  player: { full_name?: string } | null
-  card_images: { storage_path: string; is_primary?: boolean | null }[] | null
-}
+  id: string;
+  year: number | null;
+  brand: string | null;
+  card_no: string | null;
+  sport: string | null;
+  is_graded: boolean | null;
+  grade: number | null;
+  grading_company: string | null;
+  grading_no: string | null;
+  notes: string | null;
+  player: { full_name?: string } | null;
+  card_images: { storage_path: string; is_primary?: boolean | null }[] | null;
+};
 
 export default function ClientDetails({ id }: { id: string }) {
-  const router = useRouter()
-  const sp = useSearchParams()
+  const router = useRouter();
+  const sp = useSearchParams();
 
-  const [card, setCard] = useState<Card | null>(null)
-  const [idx, setIdx] = useState(0)
-  const [open, setOpen] = useState(false)
+  const [card, setCard] = useState<Card | null>(null);
+  const [idx, setIdx] = useState(0);
+  const [open, setOpen] = useState(false);
 
   // tags + notes UI state
-  const [tags, setTags] = useState<string[]>([])
-  const [initialTags, setInitialTags] = useState<string[]>([])
-  const [origTagIds, setOrigTagIds] = useState<string[]>([])
-  const [notes, setNotes] = useState('')
-  const [editing, setEditing] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [tags, setTags] = useState<string[]>([]);
+  const [initialTags, setInitialTags] = useState<string[]>([]);
+  const [origTagIds, setOrigTagIds] = useState<string[]>([]);
+  const [notes, setNotes] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // ------- helpers -------
   async function upsertTagsGetIds(labels: string[]): Promise<string[]> {
-    const clean = Array.from(new Set(labels.map((t) => t.trim()).filter(Boolean)))
-    if (!clean.length) return []
-    // Try upsert with RETURNING first
+    const clean = Array.from(
+      new Set(labels.map((t) => t.trim()).filter(Boolean)),
+    );
+    if (!clean.length) return [];
     const { data: up, error: upErr } = await supabase
-      .from('tags')
-      .upsert(clean.map((label) => ({ label })), { onConflict: 'label' })
-      .select('id,label')
-    if (upErr) throw upErr
-    let rows = up ?? []
-    // If RLS stripped RETURNING, fetch by label
+      .from("tags")
+      .upsert(
+        clean.map((label) => ({ label })),
+        { onConflict: "label" },
+      )
+      .select("id,label");
+    if (upErr) throw upErr;
+
+    let rows = up ?? [];
     if (!rows.length) {
       const { data: fetched, error: fErr } = await supabase
-        .from('tags')
-        .select('id,label')
-        .in('label', clean)
-      if (fErr) throw fErr
-      rows = fetched ?? []
+        .from("tags")
+        .select("id,label")
+        .in("label", clean);
+      if (fErr) throw fErr;
+      rows = fetched ?? [];
     }
-    const map = new Map((rows as any[]).map((r) => [r.label, r.id]))
-    return clean.map((l) => map.get(l)).filter(Boolean) as string[]
+    const map = new Map((rows as any[]).map((r) => [r.label, r.id]));
+    return clean.map((l) => map.get(l)).filter(Boolean) as string[];
   }
 
   async function fetchCardAndTags() {
-    // card
     const { data: c, error: cErr } = await supabase
-      .from('cards')
-      .select(`
+      .from("cards")
+      .select(
+        `
         id, year, brand, card_no, sport,
         is_graded, grade, grading_company, grading_no, notes,
         player:players(full_name),
         card_images(storage_path, is_primary)
-      `)
-      .eq('id', id)
-      .maybeSingle()
-    if (cErr) throw cErr
-    const cardRow = (c as unknown as Card) ?? null
-    setCard(cardRow)
-    setNotes(cardRow?.notes ?? '')
+      `,
+      )
+      .eq("id", id)
+      .maybeSingle();
+    if (cErr) throw cErr;
 
-    // tags on this card
+    const cardRow = (c as unknown as Card) ?? null;
+    setCard(cardRow);
+    setNotes(cardRow?.notes ?? "");
+
     const { data: tagRows, error: tErr } = await supabase
-      .from('card_tags')
-      .select('tag_id, tags(label)')
-      .eq('card_id', id)
-    if (tErr) throw tErr
+      .from("card_tags")
+      .select("tag_id, tags(label)")
+      .eq("card_id", id);
+    if (tErr) throw tErr;
 
     const labels = (tagRows ?? [])
       .map((r: any) => r.tags?.label as string | undefined)
-      .filter(Boolean) as string[]
-    const ids = (tagRows ?? []).map((r: any) => r.tag_id as string)
+      .filter(Boolean) as string[];
+    const ids = (tagRows ?? []).map((r: any) => r.tag_id as string);
 
-    setTags(labels)
-    setInitialTags(labels)
-    setOrigTagIds(ids)
+    setTags(labels);
+    setInitialTags(labels);
+    setOrigTagIds(ids);
   }
 
   // initial load
   useEffect(() => {
-    let cancel = false
-    ;(async () => {
+    let cancel = false;
+    (async () => {
       try {
-        await fetchCardAndTags()
+        await fetchCardAndTags();
       } catch (e: any) {
-        if (!cancel) alert(e.message ?? e)
+        if (!cancel) alert(e.message ?? e);
       }
-    })()
-    return () => { cancel = true }
-  }, [id])
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [id]);
 
   // pick the primary image by default
   useEffect(() => {
-    if (!card) return
-    const imgs = Array.isArray(card.card_images) ? card.card_images : []
-    const primaryIndex = imgs.findIndex((i) => i.is_primary)
-    setIdx(primaryIndex === -1 ? 0 : primaryIndex)
-  }, [card])
+    if (!card) return;
+    const imgs = Array.isArray(card.card_images) ? card.card_images : [];
+    const primaryIndex = imgs.findIndex((i) => i.is_primary);
+    setIdx(primaryIndex === -1 ? 0 : primaryIndex);
+  }, [card]);
 
   // esc closes lightbox
   useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false) }
-    if (open) window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    if (open) window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
-  if (!card) return <div className="py-16 text-center text-slate-500">Loading…</div>
+  if (!card)
+    return <div className="py-16 text-center text-slate-500">Loading…</div>;
 
   const imgs = (Array.isArray(card.card_images) ? card.card_images : []) as {
-    storage_path: string
-    is_primary?: boolean | null
-  }[]
-  const urls = imgs.map((i) => publicUrl(i.storage_path))
-  const activeUrl = urls[idx]
+    storage_path: string;
+    is_primary?: boolean | null;
+  }[];
+  const urls = imgs.map((i) => publicUrl(i.storage_path));
+  const activeUrl = urls[idx];
 
-  const title = `${card.year ?? ''} ${card.brand ?? ''} #${card.card_no ?? ''}`.trim()
-  const player = card.player?.full_name || 'Unknown Player'
+  const title =
+    `${card.year ?? ""} ${card.brand ?? ""} #${card.card_no ?? ""}`.trim();
+  const player = card.player?.full_name || "Unknown Player";
   const graded =
     card.is_graded && (card.grading_company || card.grade)
-      ? `${card.grading_company ?? ''} ${card.grade ?? ''}${card.grading_no ? ` (#${card.grading_no})` : ''}`.trim()
-      : 'Raw'
+      ? `${card.grading_company ?? ""} ${card.grade ?? ""}${card.grading_no ? ` (#${card.grading_no})` : ""}`.trim()
+      : "Raw";
 
   // ------- SAVE TAGS + NOTES -------
   async function saveTagsAndNotes() {
-    if (!card) return
-    setSaving(true)
+    if (!card) return;
+    setSaving(true);
     try {
-      await ensureUser()
+      await ensureUser();
 
-      const desiredTagIds = await upsertTagsGetIds(tags)
+      const desiredTagIds = await upsertTagsGetIds(tags);
 
-      // If upsert could not map any id AND there were tags typed, bail (don’t wipe)
       if (tags.filter((t) => t.trim()).length && desiredTagIds.length === 0) {
-        alert('Could not resolve tag IDs; nothing was changed.')
-        return
+        alert("Could not resolve tag IDs; nothing was changed.");
+        return;
       }
 
-      // Diff links
-      const toRemove = origTagIds.filter((tid) => !desiredTagIds.includes(tid))
-      const toAdd = desiredTagIds.filter((tid) => !origTagIds.includes(tid))
+      const toRemove = origTagIds.filter((tid) => !desiredTagIds.includes(tid));
+      const toAdd = desiredTagIds.filter((tid) => !origTagIds.includes(tid));
 
       if (toRemove.length) {
         const { error: delErr } = await supabase
-          .from('card_tags')
+          .from("card_tags")
           .delete()
-          .eq('card_id', card.id)
-          .in('tag_id', toRemove)
-        if (delErr) throw delErr
+          .eq("card_id", card.id)
+          .in("tag_id", toRemove);
+        if (delErr) throw delErr;
       }
       if (toAdd.length) {
         const { error: insErr } = await supabase
-          .from('card_tags')
-          .insert(toAdd.map((tag_id) => ({ card_id: card.id, tag_id })))
-        if (insErr) throw insErr
+          .from("card_tags")
+          .insert(toAdd.map((tag_id) => ({ card_id: card.id, tag_id })));
+        if (insErr) throw insErr;
       }
 
-      // Notes
-      const nextNotes = notes.trim() ? notes.trim() : null
+      const nextNotes = notes.trim() ? notes.trim() : null;
       const { error: nErr } = await supabase
-        .from('cards')
+        .from("cards")
         .update({ notes: nextNotes })
-        .eq('id', card.id)
-      if (nErr) throw nErr
+        .eq("id", card.id);
+      if (nErr) throw nErr;
 
-      // Let the list page know it should refresh after back
-      try { localStorage.setItem('cards_last_update', String(Date.now())) } catch {}
+      try {
+        localStorage.setItem("cards_last_update", String(Date.now()));
+      } catch {}
 
-      await fetchCardAndTags()
-      setEditing(false)
+      await fetchCardAndTags();
+      setEditing(false);
     } catch (e: any) {
-      alert(`Save failed: ${e.message ?? e}`)
+      alert(`Save failed: ${e.message ?? e}`);
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
   function cancelEdit() {
-    setTags(initialTags)
-    setNotes(card?.notes ?? '')
-    setEditing(false)
+    setTags(initialTags);
+    setNotes(card?.notes ?? "");
+    setEditing(false);
   }
 
   function goBack() {
-    if (typeof window !== 'undefined' && window.history.length > 1) {
-      router.back()
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
     } else {
-      const q = new URLSearchParams()
-      const s = sp.get('sport');  if (s) q.set('sport', s)
-      const p = sp.get('player'); if (p) q.set('player', p)
-      const y = sp.get('year');   if (y) q.set('year', y)
-      const t = sp.get('type');   if (t) q.set('type', t)
-      const tags = sp.getAll('tags'); tags.forEach((tag) => q.append('tags', tag))
-      router.push(q.toString() ? `/?${q.toString()}` : '/')
+      const q = new URLSearchParams();
+      const s = sp.get("sport");
+      if (s) q.set("sport", s);
+      const p = sp.get("player");
+      if (p) q.set("player", p);
+      const y = sp.get("year");
+      if (y) q.set("year", y);
+      const t = sp.get("type");
+      if (t) q.set("type", t);
+      const tagsQ = sp.getAll("tags");
+      tagsQ.forEach((tag) => q.append("tags", tag));
+      router.push(q.toString() ? `/?${q.toString()}` : "/");
     }
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-4 md:p-6">
-      {/* Back */}
-      <div className="mb-4">
-        <button onClick={goBack} className="text-sm text-indigo-600 hover:underline">← Back</button>
+    <div className="mx-auto max-w-3xl space-y-4 px-4 pb-10 pt-4 md:px-6">
+      {/* Back (match Add page) */}
+      <div>
+        <button
+          onClick={goBack}
+          type="button"
+          className="btn-ghost inline-flex items-center gap-2"
+        >
+          <span aria-hidden>←</span> Back
+        </button>
       </div>
 
-      {/* Hero */}
-      {activeUrl ? (
-        <>
-          <div className="mx-auto w-[92%] sm:w-[88%] md:w-[85%]">
-            <div
-              className="relative w-full overflow-hidden rounded-2xl border bg-white cursor-zoom-in"
-              onClick={() => setOpen(true)}
-              title="Tap to view larger"
-            >
-              <div className="h-[48vh] sm:h-[52vh]">
-                <Image
-                  src={activeUrl}
-                  alt={title || 'card'}
-                  fill
-                  sizes="(max-width: 768px) 100vw, 800px"
-                  className="object-contain"
-                  priority
-                />
-              </div>
+      {/* Hero (same panel style as Add page) */}
+      {urls.length ? (
+        <div className="panel overflow-hidden">
+          <div className="panel-header">
+            <div className="panel-header-accent" />
+            <div className="panel-header-title">Photos</div>
+            <div className="text-xs text-slate-500">
+              {urls.length} image{urls.length === 1 ? "" : "s"}
             </div>
           </div>
 
-          {urls.length > 1 && (
-            <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
-              {urls.map((u, i) => (
-                <button
-                  key={i}
-                  onClick={() => setIdx(i)}
-                  className={[
-                    'relative rounded-xl border bg-white',
-                    'h-[72px] w-[72px] shrink-0 overflow-hidden',
-                    i === idx ? 'ring-2 ring-indigo-500 border-indigo-300' : 'border-slate-200',
-                  ].join(' ')}
-                  title={`Photo ${i + 1}`}
-                >
-                  <Image src={u} alt="" fill sizes="72px" className="object-contain" />
-                </button>
-              ))}
+          <div className="p-3 sm:p-4">
+            <div className="mx-auto w-[92%] sm:w-[88%] md:w-[85%]">
+              <ImageCarousel
+                urls={urls}
+                initial={idx}
+                alt={title || "card"}
+                onIndexChange={setIdx}
+                onImageClick={() => setOpen(true)}
+                className="cursor-zoom-in"
+              />
             </div>
-          )}
-        </>
+          </div>
+        </div>
       ) : null}
 
-      {/* Card panel */}
-      <div className="mt-5 rounded-2xl border bg-white p-4 shadow-sm">
-        <h1 className="text-2xl font-extrabold text-slate-900">{player}</h1>
-        <p className="mt-1 text-slate-600">{title}</p>
-
-        <div className="mt-3 flex gap-2 flex-wrap">
-          <span className="pill">{card.sport || '—'}</span>
-          <span className="pill whitespace-normal break-words">{graded}</span>
+      {/* Details panel (matches Add page panels) */}
+      <div className="panel overflow-hidden">
+        <div className="panel-header">
+          <div className="panel-header-accent" />
+          <div className="panel-header-title">Card Details</div>
+          <div className="text-xs font-semibold text-slate-600">
+            {card.brand ? `— ${card.brand} —` : "—"}
+          </div>
         </div>
 
-        {/* Tags & Notes */}
-        <div className="mt-5 border-t pt-4">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="text-sm font-semibold text-slate-800">Tags & Notes</div>
-            {!editing ? (
-              <button className="text-xs rounded-lg border px-2 py-1 hover:bg-slate-50" onClick={() => setEditing(true)}>
-                Edit
-              </button>
-            ) : (
-              <div className="flex items-center gap-2">
-                <button className="text-xs rounded-lg border px-2 py-1 hover:bg-slate-50" onClick={cancelEdit} disabled={saving}>
-                  Cancel
-                </button>
-                <button
-                  className="text-xs rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 px-2 py-1 hover:bg-indigo-100"
-                  onClick={saveTagsAndNotes}
-                  disabled={saving}
-                >
-                  {saving ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            )}
+        <div className="p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-extrabold text-slate-900 truncate">
+                {player}
+              </h1>
+              <p className="mt-1 text-slate-600 truncate">{title}</p>
+            </div>
+
+            {/* Grade badge */}
+             {card.is_graded && (
+    <GradeBadge
+      company={card.grading_company}
+      grade={card.grade}
+    />
+  )}
           </div>
 
-          {!editing ? (
-            <>
-              <div className="flex flex-wrap gap-2">
-                {initialTags.length ? (
-                  initialTags.map((t) => <span key={t} className="pill">{t}</span>)
-                ) : (
-                  <span className="text-sm text-slate-500">No tags</span>
-                )}
-              </div>
-              <div className="mt-3">
-                {card.notes ? (
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{card.notes}</p>
-                ) : (
-                  <span className="text-sm text-slate-500">No notes</span>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <TagInput
-                value={tags}
-                onChange={setTags}
-                placeholder="Add a tag and press Enter (e.g., RC, Auto)"
-                suggestions={['RC','Auto','Refractor','Numbered','Patch','HOF']}
-              />
-              <textarea
-                className="mt-3 w-full rounded border px-2 py-1 text-sm"
-                rows={3}
-                placeholder="Anything special about this card…"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </>
+          {/* Status row */}
+          <div className="mt-3 flex gap-2 flex-wrap">
+            <span className="pill px-2.5 py-1 text-[11px]">
+              {card.is_graded ? "Graded" : "Raw"}
+            </span>
+
+            <span className="pill bg-slate-100 text-slate-700 border-slate-200 px-2.5 py-1 text-[11px]">
+              {card.sport || "—"}
+            </span>
+          </div>
+
+          {card.is_graded && (card.grading_company || card.grading_no) && (
+            <div className="mt-2 text-xs text-slate-600">
+              <span className="font-semibold text-slate-700">
+                {card.grading_company}
+              </span>
+              {card.grading_no && (
+                <>
+                  <span className="text-slate-400"> • </span>
+                  <span>Cert #{card.grading_no}</span>
+                </>
+              )}
+            </div>
           )}
+
+
+
+          {/* Tags & Notes panel header row */}
+          <div className="mt-5 border-t border-slate-200/70 pt-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-extrabold tracking-wide uppercase text-slate-800">
+                Tags & Notes
+              </div>
+
+              {!editing ? (
+                <button
+                  type="button"
+                  className="btn-ghost px-3 py-1.5 text-xs"
+                  onClick={() => setEditing(true)}
+                >
+                  Edit
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn-ghost px-3 py-1.5 text-xs"
+                    onClick={cancelEdit}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary px-3 py-1.5 text-xs"
+                    onClick={saveTagsAndNotes}
+                    disabled={saving}
+                  >
+                    {saving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {!editing ? (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {initialTags.length ? (
+                    initialTags.map((t) => (
+                      <span key={t} className="pill px-2.5 py-1 text-[11px]">
+                        {t}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-sm text-slate-500">No tags</span>
+                  )}
+                </div>
+
+                <div className="mt-3">
+                  {card.notes ? (
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap">
+                      {card.notes}
+                    </p>
+                  ) : (
+                    <span className="text-sm text-slate-500">No notes</span>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <TagInput
+                  value={tags}
+                  onChange={setTags}
+                  placeholder="Add a tag and press Enter (e.g., RC, Auto)"
+                  suggestions={[
+                    "RC",
+                    "Auto",
+                    "Refractor",
+                    "Numbered",
+                    "Patch",
+                    "HOF",
+                  ]}
+                />
+                <textarea
+                  className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:ring-2 focus:ring-indigo-200/70"
+                  rows={3}
+                  placeholder="Anything special about this card…"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Lightbox */}
+      {/* Lightbox (leave as-is, just slightly match button style) */}
       {open && activeUrl && (
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90"
           onClick={() => setOpen(false)}
         >
           <div
-            className="relative w-[min(95vw,1200px)] h-[min(90vh,1000px)]"
+            className="relative h-[min(90vh,1000px)] w-[min(95vw,1200px)]"
             onClick={(e) => e.stopPropagation()}
           >
-            <Image src={activeUrl} alt={title || 'card'} fill sizes="100vw" className="object-contain" />
+            <Image
+              src={activeUrl}
+              alt={title || "card"}
+              fill
+              sizes="100vw"
+              className="object-contain"
+            />
           </div>
+
           <button
-            className="absolute top-4 right-4 rounded-full bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/20"
+            className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/20"
             onClick={() => setOpen(false)}
             title="Close"
+            type="button"
           >
             Close
           </button>
         </div>
       )}
     </div>
-  )
+  );
 }

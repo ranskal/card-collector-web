@@ -49,35 +49,31 @@ function Pill({
       title={title}
       type="button"
       className={[
-        "inline-flex items-center gap-2 rounded-full",
-        "px-3 py-1 text-[13px] font-medium ring-1 transition",
-        "focus:outline-none focus:ring-2 focus:ring-indigo-300/60",
+        // base (layout only)
+        "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[13px] ring-1",
+        "transition-colors",
 
+        // active vs inactive
         active
           ? [
-              "bg-indigo-50",
-              "text-indigo-700",
-              "ring-indigo-200",
+              "bg-indigo-50 text-indigo-700 ring-indigo-200",
               "font-semibold",
             ].join(" ")
           : [
-              // 👇 subtle affordance
-              "bg-indigo-50/30",
-              "text-slate-700",
-              "ring-slate-200",
-              "hover:bg-indigo-50/60",
-              "hover:ring-indigo-200",
+              "bg-white/60 text-slate-600 ring-slate-300",
+              "hover:bg-indigo-50/50 hover:text-indigo-700 hover:ring-indigo-200",
             ].join(" "),
       ].join(" ")}
     >
+      {/* little dot indicator */}
       <span
         className={[
-          "h-1.5 w-1.5 rounded-full transition-colors",
-          active ? "bg-indigo-500" : "bg-indigo-300",
+          "h-2 w-2 rounded-full",
+          active ? "bg-indigo-500" : "bg-slate-300",
         ].join(" ")}
         aria-hidden="true"
       />
-      <span className="whitespace-nowrap">{children}</span>
+      {children}
     </button>
   );
 }
@@ -374,23 +370,41 @@ export default function HomeClient() {
   }, [cards, sportFilter, playerFilter, typeFilter, tagFilter]);
 
   const tagCounts = useMemo(() => {
-    const base = applyFilters(cards, {
+    // Base set for "Any (X)" — ignores tagFilter
+    const baseNoTags = applyFilters(cards, {
       sport: sportFilter,
       player: playerFilter,
       year: yearFilter,
       type: typeFilter,
       tags: undefined,
     });
+
+    // Set used for per-tag counts — respects current tagFilter (AND semantics)
+    const baseWithSelectedTags = applyFilters(cards, {
+      sport: sportFilter,
+      player: playerFilter,
+      year: yearFilter,
+      type: typeFilter,
+      tags: tagFilter.length ? tagFilter : undefined,
+    });
+
     const by: Record<string, number> = {};
-    for (const c of base) {
-      for (const l of (c.card_tags ?? [])
+    for (const c of baseWithSelectedTags) {
+      const labels = (c.card_tags ?? [])
         .map((ct) => ct?.tags?.label)
-        .filter(Boolean) as string[]) {
+        .filter(Boolean) as string[];
+
+      for (const l of labels) {
         by[l] = (by[l] ?? 0) + 1;
       }
     }
-    return { all: base.length, by };
-  }, [cards, sportFilter, playerFilter, yearFilter, typeFilter]);
+
+    return {
+      all: baseNoTags.length, // used by "Any (X)"
+      by, // counts that respect selected tags
+      matching: baseWithSelectedTags.length, // optional: current result count
+    };
+  }, [cards, sportFilter, playerFilter, yearFilter, typeFilter, tagFilter]);
 
   async function handleDelete(card: CardRow) {
     const label = `${card.player?.full_name || "Unknown Player"} • ${
@@ -547,8 +561,23 @@ export default function HomeClient() {
       </div>
 
       {!loading && (
-        <div className="text-xs text-slate-500">
-          {sorted.length} card{sorted.length === 1 ? "" : "s"}
+        <div className="flex items-center justify-between">
+          <div className="text-xs text-slate-700">
+            <span className="text-indigo-600 text-sm font-semibold">
+              {sorted.length}
+            </span>{" "}
+            of {cards.length} cards
+          </div>
+
+          {(sportFilter ||
+            playerFilter ||
+            yearFilter ||
+            typeFilter ||
+            tagFilter.length > 0) && (
+            <span className="text-xs font-medium text-slate-500">
+              Filters on
+            </span>
+          )}
         </div>
       )}
       {loading && (
@@ -696,115 +725,121 @@ export default function HomeClient() {
       </div>
 
       {openFilter && (
-  <div
-    className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
-    onClick={closeDialog}
-  >
-    <div
-      className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="mb-3 text-sm font-semibold text-slate-800">
-        {openFilter === "sport"
-          ? "Select Sport"
-          : openFilter === "player"
-            ? "Select Player"
-            : openFilter === "year"
-              ? "Select Year"
-              : openFilter === "type"
-                ? "Select Type"
-                : "Select Tags"}
-      </div>
-
-      {/* list */}
-      <div className="max-h-[50vh] overflow-auto space-y-2 pr-1">
-        <button
-          onClick={() => {
-            openFilter === "tags" ? setTagFilter([]) : chooseFilter("");
-          }}
-          className={[
-            "w-full text-left rounded-xl border px-3 py-2.5",
-            "text-sm transition",
-            "focus:outline-none focus:ring-2 focus:ring-indigo-300/60",
-            openFilter === "tags"
-              ? tagFilter.length === 0
-                ? "border-indigo-200 bg-indigo-50/70 text-indigo-800"
-                : "border-slate-200 bg-white text-slate-800 hover:bg-indigo-50/40 hover:border-indigo-200"
-              : openFilter === "type"
-                ? currentValue === "" || currentValue === "All"
-                  ? "border-indigo-200 bg-indigo-50/70 text-indigo-800"
-                  : "border-slate-200 bg-white text-slate-800 hover:bg-indigo-50/40 hover:border-indigo-200"
-                : currentValue === ""
-                  ? "border-indigo-200 bg-indigo-50/70 text-indigo-800"
-                  : "border-slate-200 bg-white text-slate-800 hover:bg-indigo-50/40 hover:border-indigo-200",
-          ].join(" ")}
-          type="button"
-        >
-          {openFilter === "tags" ? "Any" : "All"} ({allCountForOpen})
-        </button>
-
-        {(openFilter === "sport"
-          ? sportOptions
-          : openFilter === "player"
-            ? playerOptions
-            : openFilter === "year"
-              ? yearOptions.map(String)
-              : openFilter === "type"
-                ? ["Graded", "Raw"]
-                : tagOptions
-        ).map((opt) => {
-          let count = 0;
-          if (openFilter === "type")
-            count = opt === "Graded" ? typeCounts.graded : typeCounts.raw;
-          else if (openFilter === "sport") count = sportCounts.by[opt] ?? 0;
-          else if (openFilter === "player") count = playerCounts.by[opt] ?? 0;
-          else if (openFilter === "year") count = yearCounts.by[opt] ?? 0;
-          else if (openFilter === "tags") count = tagCounts.by[opt] ?? 0;
-
-          const isActive =
-            openFilter === "tags" ? tagFilter.includes(opt) : currentValue === opt;
-
-          return (
-            <button
-              key={opt}
-              onClick={() => {
-                openFilter === "tags" ? toggleTag(opt) : chooseFilter(opt);
-              }}
-              className={[
-                "w-full text-left rounded-xl border px-3 py-2.5",
-                "text-sm transition",
-                "focus:outline-none focus:ring-2 focus:ring-indigo-300/60",
-                isActive
-                  ? "border-indigo-200 bg-indigo-50/70 text-indigo-800"
-                  : "border-slate-200 bg-white text-slate-800 hover:bg-indigo-50/40 hover:border-indigo-200",
-              ].join(" ")}
-              type="button"
-            >
-              {openFilter === "tags" && (isActive ? "✓ " : "")}
-              {opt} ({count})
-            </button>
-          );
-        })}
-      </div>
-
-      {/* footer */}
-      <div className="mt-3 flex justify-end gap-2 border-t border-slate-200/70 pt-3">
-        {openFilter === "tags" && (
-          <button className="btn-ghost" onClick={clearTags} type="button">
-            Clear
-          </button>
-        )}
-        <button
-          className="btn-primary px-4 py-2"
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
           onClick={closeDialog}
-          type="button"
         >
-          Close
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 text-sm font-semibold text-slate-800">
+              {openFilter === "sport"
+                ? "Select Sport"
+                : openFilter === "player"
+                  ? "Select Player"
+                  : openFilter === "year"
+                    ? "Select Year"
+                    : openFilter === "type"
+                      ? "Select Type"
+                      : "Select Tags"}
+            </div>
+
+            {/* list */}
+            <div className="max-h-[50vh] overflow-auto space-y-2 pr-1">
+              <button
+                onClick={() => {
+                  openFilter === "tags" ? setTagFilter([]) : chooseFilter("");
+                }}
+                className={[
+                  "w-full text-left rounded-xl border px-3 py-2.5",
+                  "text-sm transition",
+                  "focus:outline-none focus:ring-2 focus:ring-indigo-300/60",
+                  openFilter === "tags"
+                    ? tagFilter.length === 0
+                      ? "border-indigo-200 bg-indigo-50/70 text-indigo-800"
+                      : "border-slate-200 bg-white text-slate-800 hover:bg-indigo-50/40 hover:border-indigo-200"
+                    : openFilter === "type"
+                      ? currentValue === "" || currentValue === "All"
+                        ? "border-indigo-200 bg-indigo-50/70 text-indigo-800"
+                        : "border-slate-200 bg-white text-slate-800 hover:bg-indigo-50/40 hover:border-indigo-200"
+                      : currentValue === ""
+                        ? "border-indigo-200 bg-indigo-50/70 text-indigo-800"
+                        : "border-slate-200 bg-white text-slate-800 hover:bg-indigo-50/40 hover:border-indigo-200",
+                ].join(" ")}
+                type="button"
+              >
+                {openFilter === "tags" ? "Any" : "All"} ({allCountForOpen})
+              </button>
+
+              {(openFilter === "sport"
+                ? sportOptions
+                : openFilter === "player"
+                  ? playerOptions
+                  : openFilter === "year"
+                    ? yearOptions.map(String)
+                    : openFilter === "type"
+                      ? ["Graded", "Raw"]
+                      : tagOptions
+              ).map((opt) => {
+                let count = 0;
+                if (openFilter === "type")
+                  count = opt === "Graded" ? typeCounts.graded : typeCounts.raw;
+                else if (openFilter === "sport")
+                  count = sportCounts.by[opt] ?? 0;
+                else if (openFilter === "player")
+                  count = playerCounts.by[opt] ?? 0;
+                else if (openFilter === "year") count = yearCounts.by[opt] ?? 0;
+                else if (openFilter === "tags") count = tagCounts.by[opt] ?? 0;
+
+                const isActive =
+                  openFilter === "tags"
+                    ? tagFilter.includes(opt)
+                    : currentValue === opt;
+
+                return (
+                  <button
+                    key={opt}
+                    onClick={() => {
+                      openFilter === "tags"
+                        ? toggleTag(opt)
+                        : chooseFilter(opt);
+                    }}
+                    className={[
+                      "w-full text-left rounded-xl border px-3 py-2.5",
+                      "text-sm transition",
+                      "focus:outline-none focus:ring-2 focus:ring-indigo-300/60",
+                      isActive
+                        ? "border-indigo-200 bg-indigo-50/70 text-indigo-800"
+                        : "border-slate-200 bg-white text-slate-800 hover:bg-indigo-50/40 hover:border-indigo-200",
+                    ].join(" ")}
+                    type="button"
+                  >
+                    {openFilter === "tags" && (isActive ? "✓ " : "")}
+                    {opt} ({count})
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* footer */}
+            <div className="mt-3 flex justify-end gap-2 border-t border-slate-200/70 pt-3">
+              {openFilter === "tags" && (
+                <button className="btn-ghost" onClick={clearTags} type="button">
+                  Clear
+                </button>
+              )}
+              <button
+                className="btn-primary px-4 py-2"
+                onClick={closeDialog}
+                type="button"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

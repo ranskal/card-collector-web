@@ -8,6 +8,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ensureUser } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import GradeBadge from "@/components/GradeBadge";
+import SportIcon from "@/components/SportIcon";
 
 type CardRow = {
   id: string;
@@ -23,6 +24,7 @@ type CardRow = {
   player: { full_name?: string } | null;
   card_images: { storage_path: string; is_primary?: boolean | null }[];
   card_tags?: { tags?: { label?: string | null } | null }[] | null;
+  notes?: string | null;
 };
 
 type FilterKey = "sport" | "player" | "year" | "type" | "tags" | null;
@@ -209,9 +211,9 @@ export default function HomeClient() {
         `
         id, created_at, year, brand, card_no, sport,
         is_graded, grading_company, grading_no, grade,
-        player:players(full_name),
+        player:players(full_name), 
         card_images(storage_path, is_primary),
-        card_tags:card_tags(tags(label))
+        card_tags:card_tags(tags(label)), notes
       `,
       )
       .order("created_at", { ascending: false });
@@ -596,12 +598,16 @@ export default function HomeClient() {
               `${c.year ?? ""} ${c.brand ?? ""} #${c.card_no ?? ""}`.trim() ||
               "—";
 
-            const typeChip = c.is_graded ? "Graded" : "Raw";
-            const hasGrade =
-              c.is_graded === true &&
-              !!c.grading_company &&
-              c.grade !== null &&
-              c.grade !== undefined;
+            const tagLabels = (c.card_tags ?? [])
+              .map((ct) => ct?.tags?.label)
+              .filter(Boolean) as string[];
+
+            // show up to 3 tags, then "+N"
+            const shownTags = tagLabels.slice(0, 3);
+            const extraTagCount = Math.max(
+              0,
+              tagLabels.length - shownTags.length,
+            );
 
             const query: Record<string, string | string[]> = {};
             if (sportFilter) query.sport = sportFilter;
@@ -643,21 +649,35 @@ export default function HomeClient() {
                         {title}
                       </div>
 
-                      <div className="mt-1.5 flex items-center gap-2">
-                        <span
-                          className={[
-                            "pill px-2.5 py-1 text-[11px]",
-                            c.is_graded
-                              ? "bg-indigo-50 border-indigo-200 text-indigo-700"
-                              : "bg-slate-50 border-slate-200 text-slate-700",
-                          ].join(" ")}
-                        >
-                          {typeChip}
-                        </span>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        {/* sport pill */}
+                        {c.sport && <SportIcon sport={c.sport} />}
 
-                        {c.sport && (
-                          <span className="pill bg-slate-100 text-slate-700 border-slate-200 px-2.5 py-1 text-[11px]">
-                            {c.sport}
+                        {/* notes */}
+                        {c.notes && (
+                          <span
+                            className="text-slate-500 text-xs truncate max-w-[160px]"
+                            title={c.notes}
+                          >
+                            {c.notes}
+                          </span>
+                        )}
+
+                        {/* tag pills */}
+                        {shownTags.map((t) => (
+                          <span
+                            key={t}
+                            className="pill bg-white/60 text-slate-600 border-slate-300 px-2.5 py-1 text-[11px]"
+                            title={t}
+                          >
+                            {t}
+                          </span>
+                        ))}
+
+                        {/* +N more */}
+                        {extraTagCount > 0 && (
+                          <span className="pill bg-white/60 text-slate-500 border-slate-300 px-2.5 py-1 text-[11px]">
+                            +{extraTagCount}
                           </span>
                         )}
                       </div>

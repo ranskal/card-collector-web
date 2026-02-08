@@ -1,7 +1,7 @@
 // src/app/card/[id]/ClientDetails.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -30,122 +30,176 @@ export default function ClientDetails({ id }: { id: string }) {
   const router = useRouter();
   const sp = useSearchParams();
 
-  const [card, setCard] = useState<Card | null>(null);
-  const [idx, setIdx] = useState(0);
-  const [open, setOpen] = useState(false);
+  // NOTE: make sure your imports include useMemo + useRef
+// import { useEffect, useMemo, useRef, useState } from "react";
 
-  // tags + notes UI state
-  const [tags, setTags] = useState<string[]>([]);
-  const [initialTags, setInitialTags] = useState<string[]>([]);
-  const [origTagIds, setOrigTagIds] = useState<string[]>([]);
-  const [notes, setNotes] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
+const [card, setCard] = useState<Card | null>(null);
+const [idx, setIdx] = useState(0);
+const [open, setOpen] = useState(false);
 
-  // ------- helpers -------
-  async function upsertTagsGetIds(labels: string[]): Promise<string[]> {
-    const clean = Array.from(
-      new Set(labels.map((t) => t.trim()).filter(Boolean)),
-    );
-    if (!clean.length) return [];
-    const { data: up, error: upErr } = await supabase
+// tags + notes UI state
+const [tags, setTags] = useState<string[]>([]);
+const [initialTags, setInitialTags] = useState<string[]>([]);
+const [origTagIds, setOrigTagIds] = useState<string[]>([]);
+const [notes, setNotes] = useState("");
+const [editing, setEditing] = useState(false);
+const [saving, setSaving] = useState(false);
+
+// --- derived image urls (SAFE even when card is null) ---
+const imgs = useMemo(() => {
+  const list = Array.isArray(card?.card_images) ? card!.card_images! : [];
+  return list as { storage_path: string; is_primary?: boolean | null }[];
+}, [card]);
+
+const urls = useMemo(() => imgs.map((i) => publicUrl(i.storage_path)), [imgs]);
+const urlsLen = urls.length;
+const activeUrl = urlsLen ? urls[idx] : null;
+
+// keep idx in range if image count changes
+useEffect(() => {
+  if (!urlsLen) return;
+  if (idx > urlsLen - 1) setIdx(0);
+}, [urlsLen, idx]);
+
+// lightbox swipe helpers
+const touchStartX = useRef<number | null>(null);
+const touchDeltaX = useRef(0);
+const didSwipe = useRef(false);
+
+function prevImage() {
+  if (urlsLen <= 1) return;
+  setIdx((i) => (i - 1 + urlsLen) % urlsLen);
+}
+
+function nextImage() {
+  if (urlsLen <= 1) return;
+  setIdx((i) => (i + 1) % urlsLen);
+}
+
+function onLightboxTouchStart(e: React.TouchEvent) {
+  if (urlsLen <= 1) return;
+  touchStartX.current = e.touches[0].clientX;
+  touchDeltaX.current = 0;
+  didSwipe.current = false;
+}
+
+function onLightboxTouchMove(e: React.TouchEvent) {
+  if (touchStartX.current == null) return;
+  touchDeltaX.current = e.touches[0].clientX - touchStartX.current;
+  if (Math.abs(touchDeltaX.current) > 12) didSwipe.current = true;
+}
+
+function onLightboxTouchEnd() {
+  if (touchStartX.current == null) return;
+
+  const dx = touchDeltaX.current;
+  touchStartX.current = null;
+  touchDeltaX.current = 0;
+
+  if (dx > 45) prevImage();
+  else if (dx < -45) nextImage();
+}
+
+// ------- helpers -------
+async function upsertTagsGetIds(labels: string[]): Promise<string[]> {
+  const clean = Array.from(new Set(labels.map((t) => t.trim()).filter(Boolean)));
+  if (!clean.length) return [];
+
+  const { data: up, error: upErr } = await supabase
+    .from("tags")
+    .upsert(clean.map((label) => ({ label })), { onConflict: "label" })
+    .select("id,label");
+  if (upErr) throw upErr;
+
+  let rows = up ?? [];
+  if (!rows.length) {
+    const { data: fetched, error: fErr } = await supabase
       .from("tags")
-      .upsert(
-        clean.map((label) => ({ label })),
-        { onConflict: "label" },
-      )
-      .select("id,label");
-    if (upErr) throw upErr;
-
-    let rows = up ?? [];
-    if (!rows.length) {
-      const { data: fetched, error: fErr } = await supabase
-        .from("tags")
-        .select("id,label")
-        .in("label", clean);
-      if (fErr) throw fErr;
-      rows = fetched ?? [];
-    }
-    const map = new Map((rows as any[]).map((r) => [r.label, r.id]));
-    return clean.map((l) => map.get(l)).filter(Boolean) as string[];
+      .select("id,label")
+      .in("label", clean);
+    if (fErr) throw fErr;
+    rows = fetched ?? [];
   }
 
-  async function fetchCardAndTags() {
-    const { data: c, error: cErr } = await supabase
-      .from("cards")
-      .select(
-        `
-        id, year, brand, card_no, sport,
-        is_graded, grade, grading_company, grading_no, notes,
-        player:players(full_name),
-        card_images(storage_path, is_primary)
-      `,
-      )
-      .eq("id", id)
-      .maybeSingle();
-    if (cErr) throw cErr;
+  const map = new Map((rows as any[]).map((r) => [r.label, r.id]));
+  return clean.map((l) => map.get(l)).filter(Boolean) as string[];
+}
 
-    const cardRow = (c as unknown as Card) ?? null;
-    setCard(cardRow);
-    setNotes(cardRow?.notes ?? "");
+async function fetchCardAndTags() {
+  const { data: c, error: cErr } = await supabase
+    .from("cards")
+    .select(
+      `
+      id, year, brand, card_no, sport,
+      is_graded, grade, grading_company, grading_no, notes,
+      player:players(full_name),
+      card_images(storage_path, is_primary)
+    `,
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (cErr) throw cErr;
 
-    const { data: tagRows, error: tErr } = await supabase
-      .from("card_tags")
-      .select("tag_id, tags(label)")
-      .eq("card_id", id);
-    if (tErr) throw tErr;
+  const cardRow = (c as unknown as Card) ?? null;
+  setCard(cardRow);
+  setNotes(cardRow?.notes ?? "");
 
-    const labels = (tagRows ?? [])
-      .map((r: any) => r.tags?.label as string | undefined)
-      .filter(Boolean) as string[];
-    const ids = (tagRows ?? []).map((r: any) => r.tag_id as string);
+  const { data: tagRows, error: tErr } = await supabase
+    .from("card_tags")
+    .select("tag_id, tags(label)")
+    .eq("card_id", id);
+  if (tErr) throw tErr;
 
-    setTags(labels);
-    setInitialTags(labels);
-    setOrigTagIds(ids);
+  const labels = (tagRows ?? [])
+    .map((r: any) => r.tags?.label as string | undefined)
+    .filter(Boolean) as string[];
+  const ids = (tagRows ?? []).map((r: any) => r.tag_id as string);
+
+  setTags(labels);
+  setInitialTags(labels);
+  setOrigTagIds(ids);
+}
+
+// initial load
+useEffect(() => {
+  let cancel = false;
+  (async () => {
+    try {
+      await fetchCardAndTags();
+    } catch (e: any) {
+      if (!cancel) alert(e.message ?? e);
+    }
+  })();
+  return () => {
+    cancel = true;
+  };
+}, [id]);
+
+// pick the primary image by default
+useEffect(() => {
+  if (!card) return;
+  const list = Array.isArray(card.card_images) ? card.card_images : [];
+  const primaryIndex = list.findIndex((i) => i.is_primary);
+  setIdx(primaryIndex === -1 ? 0 : primaryIndex);
+}, [card]);
+
+// esc closes lightbox + arrow navigation
+useEffect(() => {
+  function onKey(e: KeyboardEvent) {
+    if (e.key === "Escape") setOpen(false);
+    if (!open) return;
+
+    if (e.key === "ArrowLeft") prevImage();
+    if (e.key === "ArrowRight") nextImage();
   }
 
-  // initial load
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      try {
-        await fetchCardAndTags();
-      } catch (e: any) {
-        if (!cancel) alert(e.message ?? e);
-      }
-    })();
-    return () => {
-      cancel = true;
-    };
-  }, [id]);
+  if (open) window.addEventListener("keydown", onKey);
+  return () => window.removeEventListener("keydown", onKey);
+}, [open, urlsLen]);
 
-  // pick the primary image by default
-  useEffect(() => {
-    if (!card) return;
-    const imgs = Array.isArray(card.card_images) ? card.card_images : [];
-    const primaryIndex = imgs.findIndex((i) => i.is_primary);
-    setIdx(primaryIndex === -1 ? 0 : primaryIndex);
-  }, [card]);
-
-  // esc closes lightbox
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    if (open) window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
-
-  if (!card)
-    return <div className="py-16 text-center text-slate-500">Loading…</div>;
-
-  const imgs = (Array.isArray(card.card_images) ? card.card_images : []) as {
-    storage_path: string;
-    is_primary?: boolean | null;
-  }[];
-  const urls = imgs.map((i) => publicUrl(i.storage_path));
-  const activeUrl = urls[idx];
+// ✅ IMPORTANT: only after all hooks:
+if (!card)
+  return <div className="py-16 text-center text-slate-500">Loading…</div>;
 
   const title =
     `${card.year ?? ""} ${card.brand ?? ""} #${card.card_no ?? ""}`.trim();
@@ -291,12 +345,9 @@ export default function ClientDetails({ id }: { id: string }) {
             </div>
 
             {/* Grade badge */}
-             {card.is_graded && (
-    <GradeBadge
-      company={card.grading_company}
-      grade={card.grade}
-    />
-  )}
+            {card.is_graded && (
+              <GradeBadge company={card.grading_company} grade={card.grade} />
+            )}
           </div>
 
           {/* Status row */}
@@ -323,8 +374,6 @@ export default function ClientDetails({ id }: { id: string }) {
               )}
             </div>
           )}
-
-
 
           {/* Tags & Notes panel header row */}
           <div className="mt-5 border-t border-slate-200/70 pt-4">
@@ -416,6 +465,7 @@ export default function ClientDetails({ id }: { id: string }) {
       </div>
 
       {/* Lightbox (leave as-is, just slightly match button style) */}
+      {/* Lightbox (swipe + tap-to-close) */}
       {open && activeUrl && (
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90"
@@ -423,20 +473,69 @@ export default function ClientDetails({ id }: { id: string }) {
         >
           <div
             className="relative h-[min(90vh,1000px)] w-[min(95vw,1200px)]"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+
+              // tap-to-close (but not after a swipe)
+              if (!didSwipe.current) setOpen(false);
+
+              // reset for next tap
+              didSwipe.current = false;
+            }}
+            onTouchStart={onLightboxTouchStart}
+            onTouchMove={onLightboxTouchMove}
+            onTouchEnd={onLightboxTouchEnd}
           >
             <Image
               src={activeUrl}
               alt={title || "card"}
               fill
               sizes="100vw"
-              className="object-contain"
+              className="object-contain select-none"
+              draggable={false}
+              priority
             />
+
+            {/* Optional tiny hint + arrows (desktop) */}
+            {urls.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  title="Previous"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    prevImage();
+                  }}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-white/10 px-3 py-2 text-white hover:bg-white/20"
+                >
+                  ‹
+                </button>
+
+                <button
+                  type="button"
+                  title="Next"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    nextImage();
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/10 px-3 py-2 text-white hover:bg-white/20"
+                >
+                  ›
+                </button>
+
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-white/10 px-3 py-1 text-xs text-white">
+                  {idx + 1} / {urls.length}
+                </div>
+              </>
+            )}
           </div>
 
           <button
             className="absolute right-4 top-4 rounded-full bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/20"
-            onClick={() => setOpen(false)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(false);
+            }}
             title="Close"
             type="button"
           >
